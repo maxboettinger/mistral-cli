@@ -8,3 +8,7 @@ class ConfigError(MistralCliError):
 
 class InputError(MistralCliError):
     """Raised when command input cannot be resolved or validated."""
+
+
+class PersistenceError(MistralCliError):
+    """Raised when a result cannot be serialized or saved safely."""

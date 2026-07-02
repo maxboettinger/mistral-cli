@@ -1,0 +1,231 @@
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import cast
+
+import pytest
+
+from mistral_cli.formatters import (
+    build_envelope,
+    format_ocr_markdown,
+    format_timestamp,
+    format_transcription_markdown,
+    serialize_json,
+)
+from mistral_cli.models import (
+    ApiResult,
+    InputSource,
+    JSONMapping,
+    Operation,
+    SourceKind,
+)
+
+
+def make_result(
+    *,
+    operation: Operation = Operation.OCR,
+    response: JSONMapping,
+    request: JSONMapping | None = None,
+) -> ApiResult:
+    return ApiResult(
+        operation=operation,
+        source=InputSource(
+            kind=SourceKind.FILE,
+            value="/private/secret/über.pdf",
+            filename="über.pdf",
+            path=Path("/private/secret/über.pdf"),
+        ),
+        request_metadata=request or {"model": "requested-model"},
+        response=response,
+        created_at=datetime(
+            2026,
+            7,
+            2,
+            14,
+            34,
+            56,
+            123456,
+            tzinfo=timezone(timedelta(hours=2)),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("seconds", "expected"),
+    [
+        (0, "00:00:00.000"),
+        (65.125, "00:01:05.125"),
+        (25 * 3600 + 2.0039, "25:00:02.004"),
+    ],
+)
+def test_format_timestamp_uses_total_hours_and_milliseconds(
+    seconds: float,
+    expected: str,
+) -> None:
+    assert format_timestamp(seconds) == expected
+
+
+@pytest.mark.parametrize(
+    "seconds",
+    [-1, float("nan"), float("inf"), cast(float, "not-a-number")],
+)
+def test_format_timestamp_rejects_malformed_api_values(seconds: float) -> None:
+    with pytest.raises(ValueError, match="timestamp"):
+        format_timestamp(seconds)
+
+
+def test_ocr_markdown_preserves_page_order_and_adjacent_header_footer() -> None:
+    result = make_result(
+        response={
+            "model": "effective-model",
+            "pages": [
+                {
+                    "index": 1,
+                    "header": "Second header",
+                    "markdown": "Second **body**",
+                    "footer": "Second footer",
+                },
+                {
+                    "index": 0,
+                    "header": "",
+                    "markdown": "First body\n\nwith spacing",
+                    "footer": None,
+                },
+            ],
+        }
+    )
+
+    rendered = format_ocr_markdown(result)
+
+    assert rendered.startswith(
+        "# OCR Result\n\n"
+        "- Created: `2026-07-02T12:34:56.123456Z`\n"
+        "- Source: `über.pdf`\n"
+        "- Model: `effective-model`\n"
+    )
+    assert rendered.index("<!-- Page 2 -->") < rendered.index("<!-- Page 1 -->")
+    assert (
+        "<!-- Page 2 -->\n\nSecond header\n\nSecond **body**\n\nSecond footer"
+        in rendered
+    )
+    assert rendered.count("Second header") == 1
+    assert rendered.count("Second footer") == 1
+    assert "First body\n\nwith spacing" in rendered
+    assert rendered.endswith("\n")
+
+
+def test_ocr_markdown_handles_missing_optional_response_fields() -> None:
+    result = make_result(response={}, request={"model": "fallback-model"})
+
+    rendered = format_ocr_markdown(result)
+
+    assert "- Model: `fallback-model`" in rendered
+    assert "<!-- Page" not in rendered
+
+
+def test_transcription_markdown_uses_plain_text_without_segments() -> None:
+    result = make_result(
+        operation=Operation.TRANSCRIPTION,
+        response={"text": "Grüße aus Berlin 👋"},
+    )
+
+    rendered = format_transcription_markdown(result)
+
+    assert rendered.startswith("# Transcription Result\n\n")
+    assert "- Created: `2026-07-02T12:34:56.123456Z`" in rendered
+    assert "- Source: `über.pdf`" in rendered
+    assert "- Model: `requested-model`" in rendered
+    assert rendered.endswith("Grüße aus Berlin 👋\n")
+
+
+def test_transcription_markdown_renders_segments_speaker_and_timestamps() -> None:
+    result = make_result(
+        operation=Operation.TRANSCRIPTION,
+        response={
+            "text": "Hello there",
+            "segments": [
+                {
+                    "start": 1,
+                    "end": 2.5,
+                    "speaker": "Speaker 1",
+                    "text": "Hello",
+                    "score": 0.99,
+                },
+                {"start": 2.5, "end": 3, "text": "there"},
+            ],
+        },
+    )
+
+    rendered = format_transcription_markdown(result)
+
+    assert "**[00:00:01.000\N{EN DASH}00:00:02.500] Speaker 1:** Hello" in rendered
+    assert "**[00:00:02.500\N{EN DASH}00:00:03.000]:** there" in rendered
+
+
+def test_transcription_markdown_falls_back_when_all_segments_are_malformed() -> None:
+    result = make_result(
+        operation=Operation.TRANSCRIPTION,
+        response={
+            "text": "Do not lose me",
+            "segments": [
+                {"start": "bad", "end": 2, "text": "bad timestamp"},
+                {"start": 3, "end": 2, "text": "backwards"},
+                {"start": 3, "end": 4},
+            ],
+        },
+    )
+
+    assert format_transcription_markdown(result).endswith("Do not lose me\n")
+
+
+def test_build_envelope_has_exact_safe_schema_and_plain_containers() -> None:
+    request = cast(
+        JSONMapping,
+        {
+            "model": "ocr-model",
+            "options": cast(JSONMapping, {"pages": [0, 1]}),
+            "api_key": "not-a-real-key",
+            "config": {"profile": "private"},
+        },
+    )
+    result = make_result(response={"pages": [{"markdown": "café"}]}, request=request)
+
+    envelope = build_envelope(result, "9.8.7")
+
+    assert envelope == {
+        "schema_version": 1,
+        "created_at": "2026-07-02T12:34:56.123456Z",
+        "source": {
+            "kind": "file",
+            "value": "/private/secret/über.pdf",
+            "filename": "über.pdf",
+        },
+        "request": {
+            "model": "ocr-model",
+            "options": {"pages": [0, 1]},
+        },
+        "response": {"pages": [{"markdown": "café"}]},
+        "cli_version": "9.8.7",
+    }
+    assert type(envelope["request"]) is dict
+    assert type(cast(dict[str, object], envelope["request"])["options"]) is dict
+    assert "path" not in cast(dict[str, object], envelope["source"])
+    assert "api_key" not in cast(dict[str, object], envelope["request"])
+    assert "config" not in cast(dict[str, object], envelope["request"])
+    assert result.request_metadata is request
+
+
+def test_envelope_excludes_source_path_without_leaking_unrelated_api_state() -> None:
+    result = make_result(response={"text": "safe"}, request={"model": "audio"})
+
+    serialized = serialize_json(build_envelope(result, "1.0"))
+
+    assert "/private/secret/über.pdf" in serialized
+    assert '"path"' not in serialized
+    assert "MISTRAL_API_KEY" not in serialized
+    assert serialized.endswith("\n")
+    assert "\\u00fc" not in serialized
+
+
+def test_json_serialization_is_strict() -> None:
+    with pytest.raises(ValueError):
+        serialize_json({"not_json": float("nan")})
