@@ -118,6 +118,11 @@ class ConsoleBundle:
         stream.write(sanitize_terminal_text(payload))
         stream.flush()
 
+    def write_stderr(self, payload: str) -> None:
+        stream = self.stderr.file
+        stream.write(sanitize_terminal_text(payload))
+        stream.flush()
+
     def print_status(self, message: str) -> None:
         self.stderr.print(_safe_text(message))
 

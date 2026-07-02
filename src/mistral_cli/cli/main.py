@@ -5,6 +5,8 @@ import click
 
 from mistral_cli import __version__
 from mistral_cli.cli.config import config
+from mistral_cli.cli.ocr import ocr
+from mistral_cli.console import ConsoleBundle, create_console_bundle
 
 DEFAULT_CONFIG_PATH = Path("~/.mistral/config.toml").expanduser()
 
@@ -13,6 +15,7 @@ DEFAULT_CONFIG_PATH = Path("~/.mistral/config.toml").expanduser()
 class AppContext:
     config_path: Path
     debug: bool
+    consoles: ConsoleBundle
 
 
 @click.group()
@@ -29,12 +32,11 @@ class AppContext:
 @click.pass_context
 def cli(ctx: click.Context, debug: bool, config_path: Path) -> None:
     """Work with Mistral OCR and audio transcription."""
-    ctx.obj = AppContext(config_path=config_path, debug=debug)
-
-
-@cli.command()
-def ocr() -> None:
-    """Extract text from a document or image."""
+    ctx.obj = AppContext(
+        config_path=config_path,
+        debug=debug,
+        consoles=create_console_bundle(),
+    )
 
 
 @cli.command()
@@ -43,3 +45,4 @@ def transcribe() -> None:
 
 
 cli.add_command(config)
+cli.add_command(ocr)
