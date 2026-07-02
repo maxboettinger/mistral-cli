@@ -55,9 +55,7 @@ def test_request_dataclasses_are_frozen_and_slotted(source: InputSource) -> None
             setattr(request, field, "changed")
 
 
-def test_api_and_saved_model_support_types_are_immutable(
-    source: InputSource,
-) -> None:
+def test_api_result_is_frozen_and_slotted(source: InputSource) -> None:
     result = ApiResult(
         operation=Operation.OCR,
         source=source,
@@ -67,12 +65,25 @@ def test_api_and_saved_model_support_types_are_immutable(
     )
 
     assert result.operation is Operation.OCR
-    saved = SavedResult()
-    assert saved.markdown is None
-    assert saved.json is None
+    assert result.request_metadata == {"model": "ocr"}
+    assert result.response == {"pages": []}
+    assert not hasattr(result, "__dict__")
     field = "operation"
     with pytest.raises(FrozenInstanceError):
         setattr(result, field, Operation.TRANSCRIPTION)
+
+
+def test_saved_result_is_frozen_and_slotted(tmp_path: Path) -> None:
+    markdown = tmp_path / "result.md"
+    json = tmp_path / "result.json"
+    saved = SavedResult(markdown=markdown, json=json)
+
+    assert saved.markdown == markdown
+    assert saved.json == json
+    assert not hasattr(saved, "__dict__")
+    field = "markdown"
+    with pytest.raises(FrozenInstanceError):
+        setattr(saved, field, None)
 
 
 def test_api_result_requires_aware_creation_time(source: InputSource) -> None:
@@ -226,6 +237,17 @@ def test_sub_millisecond_timeout_rounds_up_to_positive_millisecond(
     assert request.timeout_ms == 1
 
 
+def test_ocr_timeout_too_large_for_milliseconds_is_rejected(
+    source: InputSource,
+) -> None:
+    with pytest.raises(InputError, match=r"--timeout.*too large"):
+        build_ocr_request(
+            source=source,
+            model="ocr",
+            timeout_seconds=1e306,
+        )
+
+
 def test_transcription_builder_populates_and_deduplicates_timestamps(
     source: InputSource,
 ) -> None:
@@ -360,4 +382,15 @@ def test_transcription_timeout_must_be_positive_and_finite(
             source=source,
             model="audio",
             timeout_seconds=timeout,
+        )
+
+
+def test_transcription_timeout_too_large_for_milliseconds_is_rejected(
+    source: InputSource,
+) -> None:
+    with pytest.raises(InputError, match=r"--timeout.*too large"):
+        build_transcription_request(
+            source=source,
+            model="audio",
+            timeout_seconds=1e306,
         )

@@ -137,7 +137,10 @@ def _validate_nonnegative_option(value: int | None, option: str) -> None:
 def _timeout_milliseconds(timeout_seconds: float) -> int:
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise InputError("--timeout must be a finite number greater than zero.")
-    return math.ceil(timeout_seconds * 1000)
+    timeout_ms = timeout_seconds * 1000
+    if not math.isfinite(timeout_ms):
+        raise InputError("--timeout is too large to represent in milliseconds.")
+    return math.ceil(timeout_ms)
 
 
 def build_ocr_request(
