@@ -254,6 +254,86 @@ def test_long_multibyte_filename_is_truncated_on_codepoint_boundary(
     assert "文" in saved.markdown.name
 
 
+def test_atomic_noreplace_move_never_overwrites_existing_entry(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    source.write_text("source content", encoding="utf-8")
+    destination.write_text("destination content", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        storage._rename_noreplace(  # pyright: ignore[reportPrivateUsage]
+            source,
+            destination,
+        )
+
+    assert source.read_text(encoding="utf-8") == "source content"
+    assert destination.read_text(encoding="utf-8") == "destination content"
+
+    destination.unlink()
+    storage._rename_noreplace(  # pyright: ignore[reportPrivateUsage]
+        source,
+        destination,
+    )
+    assert not source.exists()
+    assert destination.read_text(encoding="utf-8") == "source content"
+
+
+@pytest.mark.parametrize(
+    ("os_name", "platform", "helper_name"),
+    [
+        ("nt", "win32", "_windows_rename_noreplace"),
+        ("posix", "linux", "_linux_rename_noreplace"),
+        ("posix", "darwin", "_darwin_rename_noreplace"),
+    ],
+)
+def test_atomic_noreplace_move_dispatches_to_safe_platform_helper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    os_name: str,
+    platform: str,
+    helper_name: str,
+) -> None:
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    calls: list[tuple[Path, Path]] = []
+
+    def helper(source: Path, destination: Path) -> None:
+        calls.append((source, destination))
+
+    monkeypatch.setattr(storage.os, "name", os_name)
+    monkeypatch.setattr(storage.sys, "platform", platform)
+    monkeypatch.setattr(storage, helper_name, helper)
+
+    storage._rename_noreplace(  # pyright: ignore[reportPrivateUsage]
+        source,
+        destination,
+    )
+
+    assert calls == [(source, destination)]
+
+
+def test_atomic_noreplace_move_rejects_unsupported_platform(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    source.write_text("keep me", encoding="utf-8")
+    monkeypatch.setattr(storage.os, "name", "posix")
+    monkeypatch.setattr(storage.sys, "platform", "unsupported")
+
+    with pytest.raises(NotImplementedError, match="atomic no-replace"):
+        storage._rename_noreplace(  # pyright: ignore[reportPrivateUsage]
+            source,
+            destination,
+        )
+
+    assert source.read_text(encoding="utf-8") == "keep me"
+    assert not destination.exists()
+
+
 def test_collision_suffixes_cover_the_entire_requested_set(tmp_path: Path) -> None:
     output_dir = tmp_path / "output"
     output_dir.mkdir()
@@ -554,6 +634,70 @@ def test_rollback_reports_quarantine_if_destination_becomes_occupied(
     assert len(quarantines) == 1
     assert quarantines[0].read_text(encoding="utf-8") == ("displaced foreign entry")
     assert str(quarantines[0]) in str(raised.value)
+
+
+def test_rollback_never_overwrites_occupied_quarantine(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "output"
+    target = output_dir / "20260702T123456.123456Z-input.pdf.md"
+    real_link = os.link
+    real_rename = os.rename
+    link_calls = 0
+    quarantine: Path | None = None
+
+    def racing_link(
+        source: Path | str,
+        destination: Path | str,
+        *,
+        follow_symlinks: bool = True,
+    ) -> None:
+        nonlocal link_calls
+        link_calls += 1
+        if link_calls == 2:
+            raise FileExistsError(destination)
+        real_link(source, destination, follow_symlinks=follow_symlinks)
+
+    def occupy_quarantine(destination: Path | str) -> Path:
+        nonlocal quarantine
+        quarantine = Path(destination)
+        quarantine.write_text("foreign quarantine occupant", encoding="utf-8")
+        return quarantine
+
+    def legacy_unsafe_rename(
+        source: Path | str,
+        destination: Path | str,
+    ) -> None:
+        if str(destination).endswith(".rollback"):
+            occupy_quarantine(destination)
+        real_rename(source, destination)
+
+    def atomic_collision(
+        source: Path,
+        destination: Path,
+    ) -> None:
+        del source
+        occupy_quarantine(destination)
+        raise FileExistsError(destination)
+
+    monkeypatch.setattr(storage.os, "link", racing_link)
+    monkeypatch.setattr(storage.os, "rename", legacy_unsafe_rename)
+    monkeypatch.setattr(
+        storage,
+        "_rename_noreplace",
+        atomic_collision,
+        raising=False,
+    )
+    store = ResultStore(clock=fixed_clock, version=lambda: "v")
+
+    with pytest.raises(PersistenceError, match="rollback") as raised:
+        store.save(make_result(), "markdown", OutputFormat.BOTH, output_dir)
+
+    assert quarantine is not None
+    assert target.read_text(encoding="utf-8") == "markdown"
+    assert quarantine.read_text(encoding="utf-8") == ("foreign quarantine occupant")
+    assert str(quarantine) in str(raised.value)
 
 
 def test_link_failure_leaves_no_partial_or_temp_files(

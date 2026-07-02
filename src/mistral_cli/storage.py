@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import ctypes
+import errno
 import hashlib
 import os
 import stat
+import sys
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol, cast
 
 from mistral_cli import __version__
 from mistral_cli.errors import PersistenceError
@@ -17,6 +21,9 @@ from mistral_cli.models import ApiResult, Operation, OutputFormat, SavedResult
 FileIdentity = tuple[int, int]
 _FALLBACK_NAME_MAX = 255
 _MAX_PRESERVED_EXTENSION_BYTES = 16
+_AT_FDCWD = -100
+_RENAME_NOREPLACE = 1
+_RENAME_EXCL = 0x00000004
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +31,34 @@ class _PublishedFile:
     destination: Path
     source: Path
     identity: FileIdentity
+
+
+class _LinuxRename(Protocol):
+    argtypes: list[object]
+    restype: object
+
+    def __call__(
+        self,
+        old_directory: int,
+        old_path: bytes,
+        new_directory: int,
+        new_path: bytes,
+        flags: int,
+        /,
+    ) -> int: ...
+
+
+class _DarwinRename(Protocol):
+    argtypes: list[object]
+    restype: object
+
+    def __call__(
+        self,
+        old_path: bytes,
+        new_path: bytes,
+        flags: int,
+        /,
+    ) -> int: ...
 
 
 def utc_now() -> datetime:
@@ -82,6 +117,96 @@ def _publish(content: bytes, destination: Path) -> _PublishedFile:
 def _file_identity(path: Path) -> FileIdentity:
     stat_result = path.stat(follow_symlinks=False)
     return stat_result.st_dev, stat_result.st_ino
+
+
+def _raise_rename_error(
+    error_number: int,
+    destination: Path,
+) -> None:
+    if error_number == errno.EEXIST:
+        raise FileExistsError(
+            error_number,
+            os.strerror(error_number),
+            destination,
+        )
+    raise OSError(
+        error_number,
+        os.strerror(error_number),
+        destination,
+    )
+
+
+def _windows_rename_noreplace(source: Path, destination: Path) -> None:
+    os.rename(source, destination)
+
+
+def _linux_rename_noreplace(source: Path, destination: Path) -> None:
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        rename = cast(_LinuxRename, libc.renameat2)
+    except (AttributeError, OSError) as error:
+        raise NotImplementedError(
+            "atomic no-replace renameat2 is unavailable on this Linux system"
+        ) from error
+
+    argument_types: list[object] = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    rename.argtypes = argument_types
+    rename.restype = ctypes.c_int
+    ctypes.set_errno(0)
+    result = rename(
+        _AT_FDCWD,
+        os.fsencode(source),
+        _AT_FDCWD,
+        os.fsencode(destination),
+        _RENAME_NOREPLACE,
+    )
+    if result != 0:
+        _raise_rename_error(ctypes.get_errno(), destination)
+
+
+def _darwin_rename_noreplace(source: Path, destination: Path) -> None:
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        rename = cast(_DarwinRename, libc.renamex_np)
+    except (AttributeError, OSError) as error:
+        raise NotImplementedError(
+            "atomic no-replace renamex_np is unavailable on this macOS system"
+        ) from error
+
+    argument_types: list[object] = [
+        ctypes.c_char_p,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    rename.argtypes = argument_types
+    rename.restype = ctypes.c_int
+    ctypes.set_errno(0)
+    result = rename(
+        os.fsencode(source),
+        os.fsencode(destination),
+        _RENAME_EXCL,
+    )
+    if result != 0:
+        _raise_rename_error(ctypes.get_errno(), destination)
+
+
+def _rename_noreplace(source: Path, destination: Path) -> None:
+    if os.name == "nt":
+        _windows_rename_noreplace(source, destination)
+    elif sys.platform.startswith("linux"):
+        _linux_rename_noreplace(source, destination)
+    elif sys.platform == "darwin":
+        _darwin_rename_noreplace(source, destination)
+    else:
+        raise NotImplementedError(
+            f"atomic no-replace move is unsupported on {sys.platform}"
+        )
 
 
 def _preservation_error(
@@ -190,9 +315,13 @@ def _remove_created(published: _PublishedFile) -> None:
 
     quarantine = Path(f"{published.source}.rollback")
     try:
-        os.rename(published.destination, quarantine)
+        _rename_noreplace(published.destination, quarantine)
     except FileNotFoundError:
         return
+    except (OSError, NotImplementedError) as error:
+        raise OSError(
+            f"rollback quarantine '{quarantine}' could not be reserved: {error}"
+        ) from error
     if _file_identity(quarantine) != published.identity:
         _restore_foreign_entry(quarantine, published.destination)
         return
