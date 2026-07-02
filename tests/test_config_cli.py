@@ -106,6 +106,43 @@ def test_config_set_rejects_positional_secret_without_echoing_it(
     assert not path.exists()
 
 
+def test_config_set_rejects_option_shaped_secret_without_echoing_it(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.toml"
+    secret = "--top-secret-token"
+
+    result = CliRunner().invoke(
+        cli,
+        ["--config", str(path), "config", "set", "api-key", secret],
+    )
+
+    assert result.exit_code != 0
+    assert "prompt" in result.output
+    assert "--stdin" in result.output
+    assert secret not in result.output
+    assert not path.exists()
+
+
+def test_config_set_stdin_rejects_invalid_utf8_without_echoing_input(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.toml"
+    secret = b"should-never-echo\xff\n"
+
+    result = CliRunner().invoke(
+        cli,
+        ["--config", str(path), "config", "set", "api-key", "--stdin"],
+        input=secret,
+    )
+
+    assert result.exit_code != 0
+    assert "Error:" in result.output
+    assert "Traceback" not in result.output
+    assert "should-never-echo" not in result.output
+    assert not path.exists()
+
+
 def test_config_set_help_has_no_positional_value_argument(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         cli,

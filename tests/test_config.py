@@ -67,17 +67,20 @@ def test_missing_credentials_error_explains_both_configuration_options(
 
 
 def test_set_creates_private_nested_configuration(tmp_path: Path) -> None:
-    path = tmp_path / "nested" / "config.toml"
+    path = tmp_path / "one" / "two" / "config.toml"
 
     ConfigStore(path).set("api-key", "secret")
 
     assert ConfigStore(path).load().api_key == "secret"
     if os.name == "posix":
         assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+        assert stat.S_IMODE(path.parent.parent.stat().st_mode) == 0o700
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
-def test_set_repairs_existing_parent_directory_and_file_modes(tmp_path: Path) -> None:
+def test_set_preserves_existing_parent_mode_and_repairs_file_mode(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "nested" / "config.toml"
     path.parent.mkdir(mode=0o755)
     path.write_text("config_version = 1\n", encoding="utf-8")
@@ -86,8 +89,33 @@ def test_set_repairs_existing_parent_directory_and_file_modes(tmp_path: Path) ->
     ConfigStore(path).set("api-key", "secret")
 
     if os.name == "posix":
-        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o755
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_set_relative_path_preserves_existing_working_directory_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    custom_directory = tmp_path / "working"
+    custom_directory.mkdir(mode=0o751)
+    monkeypatch.chdir(custom_directory)
+
+    ConfigStore(Path("config.toml")).set("api-key", "secret")
+
+    if os.name == "posix":
+        assert stat.S_IMODE(custom_directory.stat().st_mode) == 0o751
+        assert stat.S_IMODE((custom_directory / "config.toml").stat().st_mode) == 0o600
+
+
+def test_set_works_when_fchmod_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "config.toml"
+    monkeypatch.delattr(os, "fchmod", raising=False)
+
+    ConfigStore(path).set("api-key", "secret")
+
+    assert ConfigStore(path).load().api_key == "secret"
 
 
 def test_set_atomically_replaces_file_without_temp_leftovers(tmp_path: Path) -> None:
@@ -119,6 +147,19 @@ def test_set_rejects_blank_values(tmp_path: Path, value: str) -> None:
 def test_set_rejects_unknown_names(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="Unknown configuration name"):
         ConfigStore(tmp_path / "config.toml").set("other", "value")
+
+
+def test_set_wraps_surrogate_encoding_error_without_writing_secret(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.toml"
+    secret = "should-never-echo\ud800"
+
+    with pytest.raises(ConfigError) as error:
+        ConfigStore(path).set("api-key", secret)
+
+    assert secret not in str(error.value)
+    assert not path.exists()
 
 
 def test_load_rejects_malformed_toml(tmp_path: Path) -> None:

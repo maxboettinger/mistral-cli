@@ -18,7 +18,13 @@ def config() -> None:
     """Manage CLI configuration."""
 
 
-@config.command("set", context_settings={"allow_extra_args": True})
+@config.command(
+    "set",
+    context_settings={
+        "allow_extra_args": True,
+        "ignore_unknown_options": True,
+    },
+)
 @click.argument("name", type=click.Choice(["api-key"]))
 @click.option(
     "--stdin",
@@ -36,7 +42,12 @@ def set_value(context: click.Context, name: str, read_stdin: bool) -> None:
         )
 
     if read_stdin:
-        value = sys.stdin.read().rstrip("\r\n")
+        try:
+            value = sys.stdin.read().rstrip("\r\n")
+        except UnicodeError as error:
+            raise click.ClickException(
+                "Could not read API key from standard input."
+            ) from error
         if not value:
             raise click.ClickException("Standard input must not be empty.")
         if "\r" in value or "\n" in value:

@@ -16,6 +16,31 @@ _CONFIG_NAMES: Final = {"api-key": "api_key"}
 _SUPPORTED_KEYS: Final = {"config_version", *_CONFIG_NAMES.values()}
 
 
+def _set_posix_mode(path: Path, mode: int) -> None:
+    if os.name == "posix":
+        path.chmod(mode)
+
+
+def _create_private_directories(path: Path) -> None:
+    missing: list[Path] = []
+    candidate = path
+    while not candidate.exists():
+        missing.append(candidate)
+        parent = candidate.parent
+        if parent == candidate:
+            break
+        candidate = parent
+
+    for directory in reversed(missing):
+        try:
+            directory.mkdir(mode=0o700)
+        except FileExistsError:
+            if not directory.is_dir():
+                raise
+        else:
+            _set_posix_mode(directory, 0o700)
+
+
 @dataclass(frozen=True, slots=True)
 class AppConfig:
     config_version: int = 1
@@ -112,19 +137,24 @@ class ConfigStore:
             raise ConfigError(f"Unknown configuration name: {name}") from error
 
     def _write(self, config: AppConfig) -> None:
+        data = {
+            key: value for key, value in asdict(config).items() if value is not None
+        }
+        try:
+            encoded = tomli_w.dumps(data).encode("utf-8")
+        except UnicodeError as error:
+            raise ConfigError(
+                f"Could not encode configuration file {self.path} as UTF-8."
+            ) from error
+
         parent = self.path.parent
         try:
-            parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            parent.chmod(0o700)
+            _create_private_directories(parent)
         except OSError as error:
             raise ConfigError(
                 f"Could not prepare configuration directory {parent}: {error}"
             ) from error
 
-        data = {
-            key: value for key, value in asdict(config).items() if value is not None
-        }
-        encoded = tomli_w.dumps(data).encode("utf-8")
         temporary_path: Path | None = None
 
         try:
@@ -139,10 +169,10 @@ class ConfigStore:
                 temporary_file.write(encoded)
                 temporary_file.flush()
                 os.fsync(temporary_file.fileno())
-                os.fchmod(temporary_file.fileno(), 0o600)
+                _set_posix_mode(temporary_path, 0o600)
 
             os.replace(temporary_path, self.path)
-            self.path.chmod(0o600)
+            _set_posix_mode(self.path, 0o600)
         except OSError as error:
             raise ConfigError(
                 f"Could not write configuration file {self.path}: {error}"
