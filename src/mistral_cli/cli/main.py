@@ -4,6 +4,7 @@ from pathlib import Path
 import click
 
 from mistral_cli import __version__
+from mistral_cli.cli.config import config
 
 DEFAULT_CONFIG_PATH = Path("~/.mistral/config.toml").expanduser()
 
@@ -31,11 +32,6 @@ def cli(ctx: click.Context, debug: bool, config_path: Path) -> None:
     ctx.obj = AppContext(config_path=config_path, debug=debug)
 
 
-@cli.group()
-def config() -> None:
-    """Manage CLI configuration."""
-
-
 @cli.command()
 def ocr() -> None:
     """Extract text from a document or image."""
@@ -44,3 +40,6 @@ def ocr() -> None:
 @cli.command()
 def transcribe() -> None:
     """Transcribe audio into text."""
+
+
+cli.add_command(config)
