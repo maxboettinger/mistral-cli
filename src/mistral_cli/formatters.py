@@ -9,12 +9,6 @@ from typing import cast
 
 from mistral_cli.models import ApiResult, JSONValue
 
-_SENSITIVE_REQUEST_KEYS = {
-    "apikey",
-    "config",
-    "configuration",
-    "mistralapikey",
-}
 _TIMESTAMP_SEPARATOR = "\N{EN DASH}"
 
 
@@ -43,6 +37,17 @@ def _canonical_datetime(value: datetime) -> str:
 
 def _string(value: object) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
+
+
+def _is_internal_request_key(key: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]", "", key.lower())
+    return (
+        "apikey" in normalized
+        or "config" in normalized
+        or normalized == "path"
+        or normalized.startswith("path")
+        or normalized.endswith("path")
+    )
 
 
 def _model(result: ApiResult) -> str:
@@ -78,14 +83,14 @@ def format_ocr_markdown(result: ApiResult) -> str:
             page = cast(Mapping[str, object], value)
             parts = [f"<!-- Page {_page_number(page, position)} -->"]
             header = _string(page.get("header"))
-            markdown = page.get("markdown")
+            markdown = _string(page.get("markdown"))
             footer = _string(page.get("footer"))
             if header is not None:
-                parts.append(header.strip("\n"))
-            if isinstance(markdown, str):
-                parts.append(markdown.strip("\n"))
+                parts.append(header)
+            if markdown is not None:
+                parts.append(markdown)
             if footer is not None:
-                parts.append(footer.strip("\n"))
+                parts.append(footer)
             sections.append("\n\n".join(parts))
     return "\n\n".join(sections) + "\n"
 
@@ -119,9 +124,12 @@ def format_transcription_markdown(result: ApiResult) -> str:
     segments = result.response.get("segments")
     lines: list[str] = []
     if isinstance(segments, list):
-        lines = [
-            line for segment in segments if (line := _segment_line(segment)) is not None
-        ]
+        for segment in segments:
+            line = _segment_line(segment)
+            if line is None:
+                lines = []
+                break
+            lines.append(line)
     if lines:
         sections.append("\n\n".join(lines))
     else:
@@ -141,11 +149,7 @@ def _plain_json(value: object, *, omit_sensitive: bool = False) -> JSONValue:
         return {
             cast(str, key): _plain_json(item, omit_sensitive=omit_sensitive)
             for key, item in mapping.items()
-            if not (
-                omit_sensitive
-                and re.sub(r"[^a-z0-9]", "", cast(str, key).lower())
-                in _SENSITIVE_REQUEST_KEYS
-            )
+            if not (omit_sensitive and _is_internal_request_key(cast(str, key)))
         }
     if isinstance(value, (list, tuple)):
         sequence = cast(Sequence[object], value)

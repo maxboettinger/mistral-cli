@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -26,14 +26,15 @@ def make_result(
     operation: Operation = Operation.OCR,
     *,
     response: JSONMapping | None = None,
+    filename: str = "input.pdf",
 ) -> ApiResult:
     return ApiResult(
         operation=operation,
         source=InputSource(
             kind=SourceKind.FILE,
-            value="/tmp/input.pdf",
-            filename="input.pdf",
-            path=Path("/tmp/input.pdf"),
+            value=f"/tmp/{filename}",
+            filename=filename,
+            path=Path("/tmp") / filename,
         ),
         request_metadata={"model": "model-v1"},
         response=(
@@ -76,6 +77,53 @@ def test_default_directories_and_clock_called_once(
         tmp_path / "home/transcriptions/20260702T123456.123456Z-input.pdf.md"
     )
     assert calls == 2
+
+
+def test_non_utc_clock_is_normalized_in_filename(tmp_path: Path) -> None:
+    def non_utc_clock() -> datetime:
+        return datetime(
+            2026,
+            7,
+            2,
+            23,
+            34,
+            56,
+            123456,
+            tzinfo=timezone(timedelta(hours=-7)),
+        )
+
+    store = ResultStore(clock=non_utc_clock, version=lambda: "v")
+
+    saved = store.save(
+        make_result(),
+        "markdown",
+        OutputFormat.MD,
+        tmp_path,
+    )
+
+    assert saved.markdown == tmp_path / "20260703T063456.123456Z-input.pdf.md"
+
+
+def test_unicode_sanitized_filename_is_preserved_in_names_and_content(
+    tmp_path: Path,
+) -> None:
+    filename = "über 文.pdf"
+    store = ResultStore(clock=fixed_clock, version=lambda: "v")
+
+    saved = store.save(
+        make_result(filename=filename),
+        "Grüße 文\n",
+        OutputFormat.BOTH,
+        tmp_path,
+    )
+
+    assert saved.markdown == tmp_path / f"20260702T123456.123456Z-{filename}.md"
+    assert saved.json == tmp_path / f"20260702T123456.123456Z-{filename}.json"
+    assert saved.markdown is not None
+    assert saved.markdown.read_text(encoding="utf-8") == "Grüße 文\n"
+    assert saved.json is not None
+    envelope = json.loads(saved.json.read_text(encoding="utf-8"))
+    assert envelope["source"]["filename"] == filename
 
 
 @pytest.mark.parametrize(

@@ -122,6 +122,30 @@ def test_ocr_markdown_handles_missing_optional_response_fields() -> None:
     assert "<!-- Page" not in rendered
 
 
+def test_ocr_markdown_preserves_raw_page_header_and_footer_newlines() -> None:
+    header = "\nHeader raw\n"
+    markdown = "\nraw body\n"
+    footer = "\nfooter raw\n"
+    result = make_result(
+        response={
+            "pages": [
+                {
+                    "index": 0,
+                    "header": header,
+                    "markdown": markdown,
+                    "footer": footer,
+                }
+            ]
+        }
+    )
+
+    rendered = format_ocr_markdown(result)
+    expected_page = "\n\n".join(["<!-- Page 1 -->", header, markdown, footer])
+
+    assert expected_page in rendered
+    assert rendered.index(header) < rendered.index(markdown) < rendered.index(footer)
+
+
 def test_transcription_markdown_uses_plain_text_without_segments() -> None:
     result = make_result(
         operation=Operation.TRANSCRIPTION,
@@ -177,6 +201,25 @@ def test_transcription_markdown_falls_back_when_all_segments_are_malformed() -> 
     assert format_transcription_markdown(result).endswith("Do not lose me\n")
 
 
+def test_transcription_markdown_falls_back_if_any_segment_is_malformed() -> None:
+    result = make_result(
+        operation=Operation.TRANSCRIPTION,
+        response={
+            "text": "Complete response text",
+            "segments": [
+                {"start": 0, "end": 1, "text": "valid subset"},
+                {"start": "bad", "end": 2, "text": "malformed"},
+            ],
+        },
+    )
+
+    rendered = format_transcription_markdown(result)
+
+    assert rendered.endswith("Complete response text\n")
+    assert "valid subset" not in rendered
+    assert "[00:00:00.000" not in rendered
+
+
 def test_build_envelope_has_exact_safe_schema_and_plain_containers() -> None:
     request = cast(
         JSONMapping,
@@ -212,6 +255,58 @@ def test_build_envelope_has_exact_safe_schema_and_plain_containers() -> None:
     assert "api_key" not in cast(dict[str, object], envelope["request"])
     assert "config" not in cast(dict[str, object], envelope["request"])
     assert result.request_metadata is request
+
+
+def test_envelope_recursively_excludes_internal_request_metadata() -> None:
+    request = cast(
+        JSONMapping,
+        {
+            "model": "safe-model",
+            "config_path": "/secret/config.toml",
+            "nested": {
+                "path": "/secret/input.pdf",
+                "API-Key": "secret-api-value",
+                "deeper": [
+                    {
+                        "mistral_api_key": "another-secret",
+                        "configuration": "private-profile",
+                        "language": "de",
+                    }
+                ],
+            },
+        },
+    )
+    response = cast(
+        JSONMapping,
+        {
+            "path": "ordinary/response/content",
+            "details": {"configuration": "returned API content"},
+        },
+    )
+
+    envelope = build_envelope(
+        make_result(response=response, request=request),
+        "1.0",
+    )
+    serialized = serialize_json(envelope)
+
+    assert envelope["request"] == {
+        "model": "safe-model",
+        "nested": {"deeper": [{"language": "de"}]},
+    }
+    assert envelope["response"] == {
+        "path": "ordinary/response/content",
+        "details": {"configuration": "returned API content"},
+    }
+    for secret in (
+        "config_path",
+        "/secret/config.toml",
+        "/secret/input.pdf",
+        "secret-api-value",
+        "another-secret",
+        "private-profile",
+    ):
+        assert secret not in serialized
 
 
 def test_envelope_excludes_source_path_without_leaking_unrelated_api_state() -> None:
