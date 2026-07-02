@@ -4,3 +4,7 @@ class MistralCliError(Exception):
 
 class ConfigError(MistralCliError):
     """Raised when configuration cannot be read, validated, or updated."""
+
+
+class InputError(MistralCliError):
+    """Raised when command input cannot be resolved or validated."""
