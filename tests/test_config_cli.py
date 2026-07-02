@@ -106,6 +106,17 @@ def test_config_set_rejects_positional_secret_without_echoing_it(
     assert not path.exists()
 
 
+def test_config_set_help_has_no_positional_value_argument(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        cli,
+        ["--config", str(tmp_path / "config.toml"), "config", "set", "--help"],
+    )
+
+    assert result.exit_code == 0
+    assert "{api-key}" in result.output
+    assert "VALUE" not in result.output
+
+
 def test_config_unset_reports_removed_and_already_absent(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     ConfigStore(path).set("api-key", "secret")
