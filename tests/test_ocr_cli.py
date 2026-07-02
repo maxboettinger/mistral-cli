@@ -12,6 +12,7 @@ from click.testing import CliRunner, Result
 import mistral_cli.cli.ocr as ocr_cli
 from mistral_cli.cli.main import cli
 from mistral_cli.config import ConfigStore
+from mistral_cli.errors import ConfigError
 from mistral_cli.models import JSONMapping, JSONValue, OcrRequest
 from mistral_cli.storage import ResultStore
 
@@ -362,6 +363,7 @@ def test_invalid_options_fail_without_gateway_call(
     assert result.exit_code != 0
     assert message in result.stderr
     assert harness.gateway.requests == []
+    assert harness.api_keys == []
 
 
 @pytest.mark.parametrize(
@@ -383,7 +385,52 @@ def test_invalid_source_fails_without_gateway_call(
     assert result.exit_code == 1
     assert message in result.stderr
     assert harness.gateway.requests == []
+    assert harness.api_keys == []
     assert "0 succeeded, 1 failed" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("source_exists", "arguments", "message"),
+    [
+        (False, (), "does not exist"),
+        (True, ("--pages", "4-2"), "ascending"),
+    ],
+)
+def test_invalid_input_is_reported_before_missing_api_key_or_runtime_creation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_exists: bool,
+    arguments: tuple[str, ...],
+    message: str,
+) -> None:
+    source = tmp_path / "source.pdf"
+    if source_exists:
+        source.write_bytes(b"%PDF-1.7\n")
+    gateway_factory_called = False
+
+    def gateway_factory(api_key: str) -> FakeGateway:
+        nonlocal gateway_factory_called
+        gateway_factory_called = True
+        pytest.fail(f"unexpected runtime creation for {len(api_key)} byte key")
+
+    monkeypatch.setattr(ocr_cli, "create_gateway", gateway_factory)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--config",
+            str(tmp_path / "missing-config.toml"),
+            "ocr",
+            str(source),
+            *arguments,
+        ],
+        env={"MISTRAL_API_KEY": ""},
+    )
+
+    assert result.exit_code == 1
+    assert message in result.stderr
+    assert "No API key configured" not in result.stderr
+    assert gateway_factory_called is False
 
 
 def test_missing_api_key_is_clean_setup_error(
@@ -469,6 +516,91 @@ def test_api_key_is_redacted_if_it_appears_in_source_text(
     assert result.exit_code == 0
     assert secret not in result.stdout + result.stderr
     assert "[REDACTED]" in result.stderr
+
+
+def test_api_key_is_redacted_from_entire_translated_error_line(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    secret = "config-secret"
+    source = make_pdf(tmp_path)
+    harness.gateway.failures[str(source)] = ConfigError(
+        f"upstream accidentally included {secret}"
+    )
+
+    result = harness.invoke(str(source))
+
+    assert result.exit_code == 1
+    assert secret not in result.stderr
+    assert "upstream accidentally included [REDACTED]" in result.stderr
+
+
+def test_api_key_is_recursively_redacted_from_all_persisted_and_stdout_data(
+    harness: Harness,
+) -> None:
+    secret = "config-secret"
+    source = f"https://example.test/{secret}.pdf?token={secret}"
+    harness.gateway.response = {
+        f"response-{secret}": {
+            "nested": [
+                secret,
+                {"message": f"response leaked {secret}"},
+            ]
+        },
+        "model": f"model-{secret}",
+        "pages": [
+            {
+                "index": 0,
+                "header": f"header {secret}",
+                "markdown": f"body {secret}",
+                "footer": f"footer {secret}",
+            }
+        ],
+    }
+
+    result = harness.invoke(source, "--stdout")
+
+    assert result.exit_code == 0
+    saved_files = list((harness.output_root / "ocr").iterdir())
+    assert {path.suffix for path in saved_files} == {".md", ".json"}
+    markdown_path = next(path for path in saved_files if path.suffix == ".md")
+    json_path = next(path for path in saved_files if path.suffix == ".json")
+    persisted_markdown = markdown_path.read_text(encoding="utf-8")
+    persisted_json = json_path.read_text(encoding="utf-8")
+    assert result.stdout == persisted_markdown
+    assert secret not in result.stdout
+    assert secret not in persisted_markdown
+    assert secret not in persisted_json
+    assert all(secret not in str(path) for path in saved_files)
+    assert persisted_json.count("[REDACTED]") >= 6
+
+
+def test_terminal_sanitized_markdown_is_identical_in_stdout_and_storage(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    source = make_pdf(tmp_path)
+    harness.gateway.response = {
+        "pages": [
+            {
+                "index": 0,
+                "markdown": (
+                    "before\x1b[31mred\x1b[0m\x1b]0;stolen-title\x07after\rreturn\x00"
+                ),
+            }
+        ]
+    }
+
+    result = harness.invoke(str(source), "--stdout", "--format", "md")
+
+    saved = next((harness.output_root / "ocr").glob("*.md"))
+    persisted = saved.read_text(encoding="utf-8")
+    assert result.exit_code == 0
+    assert result.stdout == persisted
+    assert "\x1b" not in persisted
+    assert "\r" not in persisted
+    assert "\x00" not in persisted
+    assert "beforeredafterreturn" in persisted
 
 
 def test_failed_middle_source_continues_saves_successes_and_separates_stdout(
