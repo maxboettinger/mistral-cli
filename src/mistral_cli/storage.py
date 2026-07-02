@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import stat
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -83,19 +84,96 @@ def _file_identity(path: Path) -> FileIdentity:
     return stat_result.st_dev, stat_result.st_ino
 
 
-def _restore_foreign_entry(quarantine: Path, destination: Path) -> None:
-    if os.path.lexists(destination):
-        raise OSError(
-            f"foreign rollback entry preserved at '{quarantine}' because "
-            f"'{destination}' is occupied"
-        )
+def _preservation_error(
+    quarantine: Path,
+    destination: Path,
+    detail: object,
+) -> OSError:
+    return OSError(
+        f"foreign rollback entry preserved at '{quarantine}' because "
+        f"'{destination}' could not be safely reclaimed: {detail}"
+    )
+
+
+def _remove_restored_quarantine(
+    quarantine: Path,
+    destination: Path,
+) -> None:
     try:
-        os.rename(quarantine, destination)
+        quarantine.unlink()
     except OSError as error:
-        raise OSError(
-            f"foreign rollback entry preserved at '{quarantine}' because "
-            f"'{destination}' could not be reclaimed: {error}"
-        ) from error
+        raise _preservation_error(quarantine, destination, error) from error
+
+
+def _restore_regular_file(quarantine: Path, destination: Path) -> None:
+    try:
+        os.link(quarantine, destination, follow_symlinks=False)
+    except (OSError, TypeError, NotImplementedError) as error:
+        raise _preservation_error(quarantine, destination, error) from error
+    _remove_restored_quarantine(quarantine, destination)
+
+
+def _restore_symlink(quarantine: Path, destination: Path) -> None:
+    try:
+        os.link(quarantine, destination, follow_symlinks=False)
+    except (TypeError, NotImplementedError):
+        try:
+            target = os.readlink(quarantine)
+            os.symlink(
+                target,
+                destination,
+                target_is_directory=quarantine.is_dir(),
+            )
+        except (OSError, NotImplementedError) as error:
+            raise _preservation_error(quarantine, destination, error) from error
+    except OSError as error:
+        raise _preservation_error(quarantine, destination, error) from error
+    _remove_restored_quarantine(quarantine, destination)
+
+
+def _restore_directory(
+    quarantine: Path,
+    destination: Path,
+    stat_result: os.stat_result,
+) -> None:
+    mode = stat.S_IMODE(stat_result.st_mode)
+    try:
+        os.mkdir(destination, mode)
+    except OSError as error:
+        raise _preservation_error(quarantine, destination, error) from error
+
+    try:
+        for child in list(quarantine.iterdir()):
+            _restore_foreign_entry(child, destination / child.name)
+        os.chmod(destination, mode)
+        os.utime(
+            destination,
+            ns=(stat_result.st_atime_ns, stat_result.st_mtime_ns),
+        )
+        quarantine.rmdir()
+    except OSError as error:
+        raise _preservation_error(quarantine, destination, error) from error
+
+
+def _restore_foreign_entry(quarantine: Path, destination: Path) -> None:
+    try:
+        stat_result = quarantine.stat(follow_symlinks=False)
+    except OSError as error:
+        raise _preservation_error(quarantine, destination, error) from error
+
+    mode = stat_result.st_mode
+    if stat.S_ISREG(mode):
+        _restore_regular_file(quarantine, destination)
+    elif stat.S_ISLNK(mode):
+        _restore_symlink(quarantine, destination)
+    elif stat.S_ISDIR(mode):
+        _restore_directory(quarantine, destination, stat_result)
+    else:
+        raise _preservation_error(
+            quarantine,
+            destination,
+            "entry type has no safe portable restoration primitive",
+        )
 
 
 def _remove_created(published: _PublishedFile) -> None:

@@ -277,14 +277,19 @@ def test_publish_race_rolls_back_only_this_attempt_and_retries(
     real_link = os.link
     link_calls = 0
 
-    def racing_link(source: Path | str, destination: Path | str) -> None:
+    def racing_link(
+        source: Path | str,
+        destination: Path | str,
+        *,
+        follow_symlinks: bool = True,
+    ) -> None:
         nonlocal link_calls
         link_calls += 1
         destination_path = Path(destination)
         if link_calls == 2:
             destination_path.write_text("racer", encoding="utf-8")
             raise FileExistsError(destination_path)
-        real_link(source, destination)
+        real_link(source, destination, follow_symlinks=follow_symlinks)
 
     monkeypatch.setattr(storage.os, "link", racing_link)
     store = ResultStore(clock=fixed_clock, version=lambda: "v")
@@ -311,13 +316,18 @@ def test_rollback_never_deletes_replacement_after_identity_check(
     publish_collision = False
     replacement_installed = False
 
-    def racing_link(source: Path | str, destination: Path | str) -> None:
+    def racing_link(
+        source: Path | str,
+        destination: Path | str,
+        *,
+        follow_symlinks: bool = True,
+    ) -> None:
         nonlocal link_calls, publish_collision
         link_calls += 1
         if link_calls == 2:
             publish_collision = True
             raise FileExistsError(destination)
-        real_link(source, destination)
+        real_link(source, destination, follow_symlinks=follow_symlinks)
 
     def replacing_stat(
         path: Path,
@@ -361,13 +371,18 @@ def test_rollback_restores_foreign_symlink_without_following_it(
     publish_collision = False
     replacement_installed = False
 
-    def racing_link(source: Path | str, destination: Path | str) -> None:
+    def racing_link(
+        source: Path | str,
+        destination: Path | str,
+        *,
+        follow_symlinks: bool = True,
+    ) -> None:
         nonlocal link_calls, publish_collision
         link_calls += 1
         if link_calls == 2:
             publish_collision = True
             raise FileExistsError(destination)
-        real_link(source, destination)
+        real_link(source, destination, follow_symlinks=follow_symlinks)
 
     def replacing_stat(
         path: Path,
@@ -409,13 +424,18 @@ def test_rollback_restores_foreign_directory_with_its_contents(
     publish_collision = False
     replacement_installed = False
 
-    def racing_link(source: Path | str, destination: Path | str) -> None:
+    def racing_link(
+        source: Path | str,
+        destination: Path | str,
+        *,
+        follow_symlinks: bool = True,
+    ) -> None:
         nonlocal link_calls, publish_collision
         link_calls += 1
         if link_calls == 2:
             publish_collision = True
             raise FileExistsError(destination)
-        real_link(source, destination)
+        real_link(source, destination, follow_symlinks=follow_symlinks)
 
     def replacing_stat(
         path: Path,
@@ -429,6 +449,12 @@ def test_rollback_restores_foreign_directory_with_its_contents(
             path.mkdir()
             (path / "foreign.txt").write_text(
                 "foreign directory content",
+                encoding="utf-8",
+            )
+            nested = path / "nested"
+            nested.mkdir()
+            (nested / "child.txt").write_text(
+                "nested foreign content",
                 encoding="utf-8",
             )
             replacement_installed = True
@@ -445,6 +471,9 @@ def test_rollback_restores_foreign_directory_with_its_contents(
     assert (target / "foreign.txt").read_text(encoding="utf-8") == (
         "foreign directory content"
     )
+    assert (target / "nested/child.txt").read_text(encoding="utf-8") == (
+        "nested foreign content"
+    )
     assert saved.markdown == (output_dir / "20260702T123456.123456Z-1-input.pdf.md")
     assert all(".rollback" not in path.name for path in output_dir.iterdir())
 
@@ -458,19 +487,26 @@ def test_rollback_reports_quarantine_if_destination_becomes_occupied(
     real_link = os.link
     real_stat = Path.stat
     real_unlink = Path.unlink
-    real_lexists = os.path.lexists
+    real_rename = os.rename
     link_calls = 0
     publish_collision = False
     replacement_installed = False
     destination_reoccupied = False
 
-    def racing_link(source: Path | str, destination: Path | str) -> None:
+    def racing_link(
+        source: Path | str,
+        destination: Path | str,
+        *,
+        follow_symlinks: bool = True,
+    ) -> None:
         nonlocal link_calls, publish_collision
         link_calls += 1
         if link_calls == 2:
             publish_collision = True
             raise FileExistsError(destination)
-        real_link(source, destination)
+        if str(source).endswith(".rollback") and Path(destination) == target:
+            install_destination_occupant()
+        real_link(source, destination, follow_symlinks=follow_symlinks)
 
     def replacing_stat(
         path: Path,
@@ -485,20 +521,23 @@ def test_rollback_reports_quarantine_if_destination_becomes_occupied(
             replacement_installed = True
         return result
 
-    def occupying_lexists(path: str | os.PathLike[str]) -> bool:
+    def install_destination_occupant() -> None:
         nonlocal destination_reoccupied
-        if (
-            Path(path) == target
-            and replacement_installed
-            and not destination_reoccupied
-        ):
+        if replacement_installed and not destination_reoccupied:
             target.write_text("new destination occupant", encoding="utf-8")
             destination_reoccupied = True
-        return real_lexists(path)
+
+    def occupying_rename(
+        source: Path | str,
+        destination: Path | str,
+    ) -> None:
+        if str(source).endswith(".rollback") and Path(destination) == target:
+            install_destination_occupant()
+        real_rename(source, destination)
 
     monkeypatch.setattr(storage.os, "link", racing_link)
+    monkeypatch.setattr(storage.os, "rename", occupying_rename)
     monkeypatch.setattr(Path, "stat", replacing_stat)
-    monkeypatch.setattr(storage.os.path, "lexists", occupying_lexists)
     store = ResultStore(clock=fixed_clock, version=lambda: "v")
 
     with pytest.raises(
