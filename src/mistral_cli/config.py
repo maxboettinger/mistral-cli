@@ -38,7 +38,7 @@ class ConfigStore:
         try:
             with self.path.open("rb") as config_file:
                 data = tomllib.load(config_file)
-        except tomllib.TOMLDecodeError as error:
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
             raise ConfigError(
                 f"Could not parse configuration file {self.path}: {error}"
             ) from error

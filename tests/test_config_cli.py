@@ -88,6 +88,24 @@ def test_config_set_stdin_rejects_embedded_extra_lines(tmp_path: Path) -> None:
     assert not path.exists()
 
 
+def test_config_set_rejects_positional_secret_without_echoing_it(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.toml"
+    secret = "should-never-echo"
+
+    result = CliRunner().invoke(
+        cli,
+        ["--config", str(path), "config", "set", "api-key", secret],
+    )
+
+    assert result.exit_code != 0
+    assert "prompt" in result.output
+    assert "--stdin" in result.output
+    assert secret not in result.output
+    assert not path.exists()
+
+
 def test_config_unset_reports_removed_and_already_absent(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     ConfigStore(path).set("api-key", "secret")
@@ -133,3 +151,18 @@ def test_config_errors_are_clean_click_errors(tmp_path: Path) -> None:
     assert result.exit_code != 0
     assert "Error: Could not parse" in result.output
     assert "Traceback" not in result.output
+
+
+def test_config_show_invalid_utf8_is_a_clean_click_error(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_bytes(b'api_key = "\xff"\n')
+
+    result = CliRunner().invoke(
+        cli,
+        ["--config", str(path), "config", "show"],
+    )
+
+    assert result.exit_code != 0
+    assert "Error: Could not parse" in result.output
+    assert "Traceback" not in result.output
+    assert not isinstance(result.exception, UnicodeDecodeError)

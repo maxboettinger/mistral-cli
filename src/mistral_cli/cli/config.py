@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import click
 import tomli_w
@@ -18,7 +18,7 @@ def config() -> None:
     """Manage CLI configuration."""
 
 
-@config.command("set")
+@config.command("set", context_settings={"allow_extra_args": True})
 @click.argument("name", type=click.Choice(["api-key"]))
 @click.option(
     "--stdin",
@@ -26,9 +26,15 @@ def config() -> None:
     is_flag=True,
     help="Read the value from standard input.",
 )
-@click.pass_obj
-def set_value(context: AppContext, name: str, read_stdin: bool) -> None:
+@click.pass_context
+def set_value(context: click.Context, name: str, read_stdin: bool) -> None:
     """Set a configuration value."""
+    if context.args:
+        raise click.UsageError(
+            "API keys must be provided through the prompt or --stdin.",
+            ctx=context,
+        )
+
     if read_stdin:
         value = sys.stdin.read().rstrip("\r\n")
         if not value:
@@ -43,7 +49,8 @@ def set_value(context: AppContext, name: str, read_stdin: bool) -> None:
         )
 
     try:
-        ConfigStore(context.config_path).set(name, value)
+        app_context = cast("AppContext", context.obj)
+        ConfigStore(app_context.config_path).set(name, value)
     except ConfigError as error:
         raise click.ClickException(str(error)) from error
 

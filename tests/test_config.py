@@ -129,6 +129,14 @@ def test_load_rejects_malformed_toml(tmp_path: Path) -> None:
         ConfigStore(path).load()
 
 
+def test_load_wraps_invalid_utf8_as_parse_error(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_bytes(b'api_key = "\xff"\n')
+
+    with pytest.raises(ConfigError, match="Could not parse"):
+        ConfigStore(path).load()
+
+
 def test_set_does_not_replace_malformed_existing_file(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     malformed = "not = [valid"
