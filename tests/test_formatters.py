@@ -220,6 +220,27 @@ def test_transcription_markdown_falls_back_if_any_segment_is_malformed() -> None
     assert "[00:00:00.000" not in rendered
 
 
+def test_transcription_markdown_falls_back_for_huge_integer_timestamp() -> None:
+    huge_timestamp = 10**1000
+    result = make_result(
+        operation=Operation.TRANSCRIPTION,
+        response={
+            "text": "Complete text survives",
+            "segments": [
+                {
+                    "start": 0,
+                    "end": huge_timestamp,
+                    "text": "unrepresentable segment",
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(ValueError, match="timestamp"):
+        format_timestamp(huge_timestamp)
+    assert format_transcription_markdown(result).endswith("Complete text survives\n")
+
+
 def test_build_envelope_has_exact_safe_schema_and_plain_containers() -> None:
     request = cast(
         JSONMapping,

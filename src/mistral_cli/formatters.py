@@ -16,11 +16,19 @@ def format_timestamp(seconds: float) -> str:
     """Format a nonnegative API timestamp with millisecond precision."""
     if type(seconds) not in (int, float):
         raise ValueError("timestamp must be a finite nonnegative number")
-    if not math.isfinite(seconds) or seconds < 0:
+    try:
+        is_finite = math.isfinite(seconds)
+    except OverflowError as error:
+        raise ValueError("timestamp is too large") from error
+    if not is_finite or seconds < 0:
         raise ValueError("timestamp must be a finite nonnegative number")
 
     milliseconds_value = seconds * 1000
-    if not math.isfinite(milliseconds_value):
+    try:
+        milliseconds_are_finite = math.isfinite(milliseconds_value)
+    except OverflowError as error:
+        raise ValueError("timestamp is too large") from error
+    if not milliseconds_are_finite:
         raise ValueError("timestamp is too large")
     total_milliseconds = math.floor(milliseconds_value + 0.5)
     total_seconds, milliseconds = divmod(total_milliseconds, 1000)

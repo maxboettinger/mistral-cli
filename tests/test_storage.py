@@ -165,6 +165,95 @@ def test_save_honors_format_and_exact_custom_directory(
         assert saved.json.stat().st_mode & 0o777 == 0o600
 
 
+def test_save_works_when_fchmod_is_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delattr(storage.os, "fchmod", raising=False)
+    store = ResultStore(clock=fixed_clock, version=lambda: "v")
+
+    saved = store.save(make_result(), "markdown", OutputFormat.MD, tmp_path)
+
+    assert saved.markdown is not None
+    assert saved.markdown.read_text(encoding="utf-8") == "markdown"
+    if os.name == "posix":
+        assert saved.markdown.stat().st_mode & 0o777 == 0o600
+
+
+def test_private_mode_skips_fchmod_on_non_posix_platform(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "temporary"
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+
+    def unexpected_fchmod(fd: int, mode: int) -> None:
+        del fd, mode
+        raise AssertionError("fchmod must not be called on non-POSIX systems")
+
+    monkeypatch.setattr(storage.os, "fchmod", unexpected_fchmod, raising=False)
+    monkeypatch.setattr(storage.os, "name", "nt")
+    try:
+        storage._set_private_mode(  # pyright: ignore[reportPrivateUsage]
+            fd,
+            path,
+        )
+    finally:
+        os.close(fd)
+
+
+def test_long_ascii_filename_and_collision_suffix_fit_name_max(
+    tmp_path: Path,
+) -> None:
+    filename = f"{'a' * 230}.pdf"
+    store = ResultStore(clock=fixed_clock, version=lambda: "v")
+
+    first = store.save(
+        make_result(filename=filename),
+        "first",
+        OutputFormat.BOTH,
+        tmp_path,
+    )
+    second = store.save(
+        make_result(filename=filename),
+        "second",
+        OutputFormat.BOTH,
+        tmp_path,
+    )
+
+    for saved in (first, second):
+        assert saved.markdown is not None
+        assert saved.json is not None
+        assert len(saved.markdown.name.encode("utf-8")) <= 255
+        assert len(saved.json.name.encode("utf-8")) <= 255
+        assert saved.markdown.name.removesuffix(".md").endswith(".pdf")
+        assert saved.json.name.removesuffix(".json").endswith(".pdf")
+    assert second.markdown is not None
+    assert "Z-1-" in second.markdown.name
+
+
+def test_long_multibyte_filename_is_truncated_on_codepoint_boundary(
+    tmp_path: Path,
+) -> None:
+    filename = f"{'文' * 100}.pdf"
+    store = ResultStore(clock=fixed_clock, version=lambda: "v")
+
+    saved = store.save(
+        make_result(filename=filename),
+        "unicode",
+        OutputFormat.BOTH,
+        tmp_path,
+    )
+
+    assert saved.markdown is not None
+    assert saved.json is not None
+    assert len(saved.markdown.name.encode("utf-8")) <= 255
+    assert len(saved.json.name.encode("utf-8")) <= 255
+    assert saved.markdown.name.removesuffix(".md").endswith(".pdf")
+    assert saved.json.name.removesuffix(".json").endswith(".pdf")
+    assert "文" in saved.markdown.name
+
+
 def test_collision_suffixes_cover_the_entire_requested_set(tmp_path: Path) -> None:
     output_dir = tmp_path / "output"
     output_dir.mkdir()
@@ -207,6 +296,54 @@ def test_publish_race_rolls_back_only_this_attempt_and_retries(
     assert (output_dir / f"{base}.json").read_text(encoding="utf-8") == "racer"
     assert saved.markdown == output_dir / "20260702T123456.123456Z-1-input.pdf.md"
     assert saved.json == output_dir / "20260702T123456.123456Z-1-input.pdf.json"
+
+
+def test_rollback_never_deletes_replacement_after_identity_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "output"
+    target = output_dir / "20260702T123456.123456Z-input.pdf.md"
+    real_link = os.link
+    real_stat = Path.stat
+    real_unlink = Path.unlink
+    link_calls = 0
+    publish_collision = False
+    replacement_installed = False
+
+    def racing_link(source: Path | str, destination: Path | str) -> None:
+        nonlocal link_calls, publish_collision
+        link_calls += 1
+        if link_calls == 2:
+            publish_collision = True
+            raise FileExistsError(destination)
+        real_link(source, destination)
+
+    def replacing_stat(
+        path: Path,
+        *,
+        follow_symlinks: bool = True,
+    ) -> os.stat_result:
+        nonlocal replacement_installed
+        result = real_stat(path, follow_symlinks=follow_symlinks)
+        if path == target and publish_collision and not replacement_installed:
+            real_unlink(path)
+            path.write_text("foreign replacement", encoding="utf-8")
+            replacement_installed = True
+        return result
+
+    monkeypatch.setattr(storage.os, "link", racing_link)
+    monkeypatch.setattr(Path, "stat", replacing_stat)
+    store = ResultStore(clock=fixed_clock, version=lambda: "v")
+
+    saved = store.save(make_result(), "markdown", OutputFormat.BOTH, output_dir)
+
+    assert replacement_installed
+    assert target.read_text(encoding="utf-8") == "foreign replacement"
+    assert saved.markdown == (output_dir / "20260702T123456.123456Z-1-input.pdf.md")
+    assert all(
+        not path.name.startswith(".mistral-cli-") for path in output_dir.iterdir()
+    )
 
 
 def test_link_failure_leaves_no_partial_or_temp_files(
