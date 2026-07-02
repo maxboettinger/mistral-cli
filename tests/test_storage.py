@@ -346,6 +346,177 @@ def test_rollback_never_deletes_replacement_after_identity_check(
     )
 
 
+def test_rollback_restores_foreign_symlink_without_following_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "output"
+    target = output_dir / "20260702T123456.123456Z-input.pdf.md"
+    symlink_target = tmp_path / "foreign-target.txt"
+    symlink_target.write_text("foreign target content", encoding="utf-8")
+    real_link = os.link
+    real_stat = Path.stat
+    real_unlink = Path.unlink
+    link_calls = 0
+    publish_collision = False
+    replacement_installed = False
+
+    def racing_link(source: Path | str, destination: Path | str) -> None:
+        nonlocal link_calls, publish_collision
+        link_calls += 1
+        if link_calls == 2:
+            publish_collision = True
+            raise FileExistsError(destination)
+        real_link(source, destination)
+
+    def replacing_stat(
+        path: Path,
+        *,
+        follow_symlinks: bool = True,
+    ) -> os.stat_result:
+        nonlocal replacement_installed
+        result = real_stat(path, follow_symlinks=follow_symlinks)
+        if path == target and publish_collision and not replacement_installed:
+            real_unlink(path)
+            path.symlink_to(symlink_target)
+            replacement_installed = True
+        return result
+
+    monkeypatch.setattr(storage.os, "link", racing_link)
+    monkeypatch.setattr(Path, "stat", replacing_stat)
+    store = ResultStore(clock=fixed_clock, version=lambda: "v")
+
+    saved = store.save(make_result(), "markdown", OutputFormat.BOTH, output_dir)
+
+    assert replacement_installed
+    assert target.is_symlink()
+    assert target.readlink() == symlink_target
+    assert target.read_text(encoding="utf-8") == "foreign target content"
+    assert saved.markdown == (output_dir / "20260702T123456.123456Z-1-input.pdf.md")
+    assert all(".rollback" not in path.name for path in output_dir.iterdir())
+
+
+def test_rollback_restores_foreign_directory_with_its_contents(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "output"
+    target = output_dir / "20260702T123456.123456Z-input.pdf.md"
+    real_link = os.link
+    real_stat = Path.stat
+    real_unlink = Path.unlink
+    link_calls = 0
+    publish_collision = False
+    replacement_installed = False
+
+    def racing_link(source: Path | str, destination: Path | str) -> None:
+        nonlocal link_calls, publish_collision
+        link_calls += 1
+        if link_calls == 2:
+            publish_collision = True
+            raise FileExistsError(destination)
+        real_link(source, destination)
+
+    def replacing_stat(
+        path: Path,
+        *,
+        follow_symlinks: bool = True,
+    ) -> os.stat_result:
+        nonlocal replacement_installed
+        result = real_stat(path, follow_symlinks=follow_symlinks)
+        if path == target and publish_collision and not replacement_installed:
+            real_unlink(path)
+            path.mkdir()
+            (path / "foreign.txt").write_text(
+                "foreign directory content",
+                encoding="utf-8",
+            )
+            replacement_installed = True
+        return result
+
+    monkeypatch.setattr(storage.os, "link", racing_link)
+    monkeypatch.setattr(Path, "stat", replacing_stat)
+    store = ResultStore(clock=fixed_clock, version=lambda: "v")
+
+    saved = store.save(make_result(), "markdown", OutputFormat.BOTH, output_dir)
+
+    assert replacement_installed
+    assert target.is_dir()
+    assert (target / "foreign.txt").read_text(encoding="utf-8") == (
+        "foreign directory content"
+    )
+    assert saved.markdown == (output_dir / "20260702T123456.123456Z-1-input.pdf.md")
+    assert all(".rollback" not in path.name for path in output_dir.iterdir())
+
+
+def test_rollback_reports_quarantine_if_destination_becomes_occupied(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "output"
+    target = output_dir / "20260702T123456.123456Z-input.pdf.md"
+    real_link = os.link
+    real_stat = Path.stat
+    real_unlink = Path.unlink
+    real_lexists = os.path.lexists
+    link_calls = 0
+    publish_collision = False
+    replacement_installed = False
+    destination_reoccupied = False
+
+    def racing_link(source: Path | str, destination: Path | str) -> None:
+        nonlocal link_calls, publish_collision
+        link_calls += 1
+        if link_calls == 2:
+            publish_collision = True
+            raise FileExistsError(destination)
+        real_link(source, destination)
+
+    def replacing_stat(
+        path: Path,
+        *,
+        follow_symlinks: bool = True,
+    ) -> os.stat_result:
+        nonlocal replacement_installed
+        result = real_stat(path, follow_symlinks=follow_symlinks)
+        if path == target and publish_collision and not replacement_installed:
+            real_unlink(path)
+            path.write_text("displaced foreign entry", encoding="utf-8")
+            replacement_installed = True
+        return result
+
+    def occupying_lexists(path: str | os.PathLike[str]) -> bool:
+        nonlocal destination_reoccupied
+        if (
+            Path(path) == target
+            and replacement_installed
+            and not destination_reoccupied
+        ):
+            target.write_text("new destination occupant", encoding="utf-8")
+            destination_reoccupied = True
+        return real_lexists(path)
+
+    monkeypatch.setattr(storage.os, "link", racing_link)
+    monkeypatch.setattr(Path, "stat", replacing_stat)
+    monkeypatch.setattr(storage.os.path, "lexists", occupying_lexists)
+    store = ResultStore(clock=fixed_clock, version=lambda: "v")
+
+    with pytest.raises(
+        PersistenceError,
+        match="foreign rollback entry preserved",
+    ) as raised:
+        store.save(make_result(), "markdown", OutputFormat.BOTH, output_dir)
+
+    quarantines = [
+        path for path in output_dir.iterdir() if path.name.endswith(".rollback")
+    ]
+    assert destination_reoccupied
+    assert target.read_text(encoding="utf-8") == "new destination occupant"
+    assert len(quarantines) == 1
+    assert quarantines[0].read_text(encoding="utf-8") == ("displaced foreign entry")
+    assert str(quarantines[0]) in str(raised.value)
+
+
 def test_link_failure_leaves_no_partial_or_temp_files(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

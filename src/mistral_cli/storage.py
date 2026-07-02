@@ -83,12 +83,19 @@ def _file_identity(path: Path) -> FileIdentity:
     return stat_result.st_dev, stat_result.st_ino
 
 
-def _restore_foreign_file(quarantine: Path, destination: Path) -> None:
+def _restore_foreign_entry(quarantine: Path, destination: Path) -> None:
+    if os.path.lexists(destination):
+        raise OSError(
+            f"foreign rollback entry preserved at '{quarantine}' because "
+            f"'{destination}' is occupied"
+        )
     try:
-        os.link(quarantine, destination)
-    except FileExistsError:
-        return
-    quarantine.unlink()
+        os.rename(quarantine, destination)
+    except OSError as error:
+        raise OSError(
+            f"foreign rollback entry preserved at '{quarantine}' because "
+            f"'{destination}' could not be reclaimed: {error}"
+        ) from error
 
 
 def _remove_created(published: _PublishedFile) -> None:
@@ -109,7 +116,7 @@ def _remove_created(published: _PublishedFile) -> None:
     except FileNotFoundError:
         return
     if _file_identity(quarantine) != published.identity:
-        _restore_foreign_file(quarantine, published.destination)
+        _restore_foreign_entry(quarantine, published.destination)
         return
     quarantine.unlink()
 
