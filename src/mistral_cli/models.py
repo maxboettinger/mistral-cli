@@ -121,10 +121,13 @@ def _normalize_pages(pages: str | None) -> str | None:
             raise InputError(
                 "--pages must contain nonnegative page numbers or ascending ranges."
             )
-        if "-" in token:
-            start_text, end_text = token.split("-", maxsplit=1)
-            if int(start_text) > int(end_text):
-                raise InputError("--pages ranges must be ascending.")
+        number_texts = token.split("-", maxsplit=1)
+        try:
+            numbers = tuple(int(number) for number in number_texts)
+        except ValueError as error:
+            raise InputError("--pages page numbers are too large.") from error
+        if len(numbers) == 2 and numbers[0] > numbers[1]:
+            raise InputError("--pages ranges must be ascending.")
 
     return ",".join(tokens)
 

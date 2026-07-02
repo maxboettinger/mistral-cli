@@ -3,12 +3,13 @@ from __future__ import annotations
 import mimetypes
 import re
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import SplitResult, unquote, urlsplit
 
 from mistral_cli.errors import InputError
 from mistral_cli.models import InputSource, OcrSourceKind, Operation, SourceKind
 
-_UNSAFE_FILENAME_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f/\\]")
+_WINDOWS_DRIVE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
+_UNSAFE_FILENAME_CHARACTERS = re.compile(r'[\x00-\x1f\x7f-\x9f<>:"/\\|?*]')
 _IMAGE_URL_SUFFIXES = frozenset(
     {
         ".avif",
@@ -50,11 +51,11 @@ def _fallback_filename(purpose: str | Operation) -> str:
 
 
 def _sanitize_filename(filename: str, fallback: str) -> str:
-    sanitized = _UNSAFE_FILENAME_CHARACTERS.sub("_", filename)
+    sanitized = _UNSAFE_FILENAME_CHARACTERS.sub("_", filename).rstrip(" .")
     if not sanitized or all(character == "." for character in sanitized):
         return fallback
 
-    stem = sanitized.split(".", maxsplit=1)[0]
+    stem = sanitized.split(".", maxsplit=1)[0].rstrip(" ")
     if stem.casefold() in _WINDOWS_RESERVED_STEMS:
         return f"_{sanitized}"
     return sanitized
@@ -73,8 +74,11 @@ def _local_ocr_kind(path: Path) -> OcrSourceKind:
     return OcrSourceKind.DOCUMENT
 
 
-def _resolve_url(value: str, purpose: str | Operation) -> InputSource:
-    parsed = urlsplit(value)
+def _resolve_url(
+    value: str,
+    purpose: str | Operation,
+    parsed: SplitResult,
+) -> InputSource:
     fallback = _fallback_filename(purpose)
     encoded_component = parsed.path.rsplit("/", maxsplit=1)[-1]
     filename = _sanitize_filename(unquote(encoded_component), fallback)
@@ -113,10 +117,31 @@ def _resolve_local(value: str, purpose: str | Operation) -> InputSource:
 
 
 def resolve_source(value: str, purpose: str | Operation) -> InputSource:
-    parsed = urlsplit(value)
+    if _WINDOWS_DRIVE_PATH.match(value) is not None:
+        return _resolve_local(value, purpose)
+
+    try:
+        parsed = urlsplit(value)
+    except ValueError as error:
+        raise InputError(f"source URL is invalid: {error}") from error
+
     scheme = parsed.scheme.casefold()
     if scheme in {"http", "https"}:
-        return _resolve_url(value, purpose)
+        try:
+            hostname = parsed.hostname
+            _ = parsed.port
+        except ValueError as error:
+            raise InputError(f"source URL is invalid: {error}") from error
+        if (
+            not parsed.netloc
+            or hostname is None
+            or not hostname
+            or any(character.isspace() for character in hostname)
+        ):
+            raise InputError(
+                "source HTTP(S) URL must include a valid authority and hostname."
+            )
+        return _resolve_url(value, purpose, parsed)
     if scheme:
         raise InputError(
             f"source URL scheme {parsed.scheme!r} is unsupported; "

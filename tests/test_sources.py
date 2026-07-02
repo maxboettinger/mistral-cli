@@ -74,6 +74,35 @@ def test_http_and_https_urls_are_accepted(url: str, kind: SourceKind) -> None:
 @pytest.mark.parametrize(
     "url",
     [
+        "http://localhost:8080/report.pdf",
+        "http://[::1]:8080/report.pdf",
+    ],
+)
+def test_urls_with_valid_ports_and_ipv6_are_accepted(url: str) -> None:
+    assert resolve_source(url, "document").value == url
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https:///tmp/file.pdf",
+        "http:foo.pdf",
+        "http://:8080/file.pdf",
+    ],
+)
+def test_http_urls_without_a_hostname_are_rejected(url: str) -> None:
+    with pytest.raises(InputError, match=r"source.*URL.*hostname"):
+        resolve_source(url, "document")
+
+
+def test_malformed_ipv6_url_is_translated_to_input_error() -> None:
+    with pytest.raises(InputError, match=r"source.*URL"):
+        resolve_source("http://[::1", "document")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
         "ftp://example.test/file.pdf",
         "file:///tmp/file.pdf",
         "gopher://example.test/file.pdf",
@@ -82,6 +111,17 @@ def test_http_and_https_urls_are_accepted(url: str, kind: SourceKind) -> None:
 def test_unsupported_explicit_url_scheme_is_rejected(url: str) -> None:
     with pytest.raises(InputError, match=r"source.*http.*https"):
         resolve_source(url, "document")
+
+
+@pytest.mark.parametrize("value", [r"C:\tmp\file.pdf", "C:/tmp/file.pdf"])
+def test_windows_drive_path_is_treated_as_local(value: str) -> None:
+    with (
+        patch.object(Path, "exists", return_value=False),
+        pytest.raises(InputError, match=r"source path does not exist") as error,
+    ):
+        resolve_source(value, "document")
+
+    assert "scheme" not in str(error.value)
 
 
 def test_url_filename_is_decoded_and_query_is_ignored() -> None:
@@ -126,6 +166,44 @@ def test_url_filename_replaces_encoded_separators_and_controls(
 
     assert source.filename == expected
     assert "\x00" not in source.filename
+
+
+@pytest.mark.parametrize(
+    ("component", "expected"),
+    [
+        ("report%3Ffinal.pdf", "report_final.pdf"),
+        (
+            "bad%3C%3E%3A%22%7C%3F%2Aname.pdf",
+            "bad_______name.pdf",
+        ),
+        ("report.pdf.%20", "report.pdf"),
+    ],
+)
+def test_url_filename_is_portable_across_platforms(
+    component: str,
+    expected: str,
+) -> None:
+    source = resolve_source(f"https://example.test/{component}", "document")
+
+    assert source.filename == expected
+
+
+@pytest.mark.parametrize(
+    ("component", "expected"),
+    [
+        ("CON.pdf", "_CON.pdf"),
+        ("aux", "_aux"),
+        ("lPt9.txt", "_lPt9.txt"),
+    ],
+)
+def test_windows_reserved_url_name_is_prefixed(
+    component: str,
+    expected: str,
+) -> None:
+    assert (
+        resolve_source(f"https://example.test/{component}", "document").filename
+        == expected
+    )
 
 
 @pytest.mark.parametrize("component", [".", "..", "%2E", "%2E%2E"])

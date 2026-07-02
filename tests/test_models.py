@@ -151,6 +151,22 @@ def test_valid_page_syntax_is_normalized(
     assert request.pages == ",".join(part.strip() for part in pages.strip().split(","))
 
 
+@pytest.mark.parametrize(
+    "pages",
+    [
+        "9" * 5000,
+        f"1-{'9' * 5000}",
+    ],
+    ids=["single", "range"],
+)
+def test_huge_page_numbers_are_translated_to_input_error(
+    source: InputSource,
+    pages: str,
+) -> None:
+    with pytest.raises(InputError, match=r"--pages"):
+        build_ocr_request(source=source, model="ocr", pages=pages)
+
+
 @pytest.mark.parametrize("model", ["", " ", "\t\n"])
 def test_blank_ocr_model_is_rejected(source: InputSource, model: str) -> None:
     with pytest.raises(InputError, match="--model"):
