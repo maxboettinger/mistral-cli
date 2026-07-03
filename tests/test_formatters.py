@@ -1,15 +1,23 @@
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import cast
 
 import pytest
 
+from mistral_cli.console import sanitize_terminal_text
 from mistral_cli.formatters import (
+    RECORD_SCHEMA_VERSION,
+    build_dry_run_record,
     build_envelope,
+    build_error_record,
+    build_ok_record,
+    build_summary_record,
     format_ocr_markdown,
     format_timestamp,
     format_transcription_markdown,
     serialize_json,
+    serialize_ndjson,
 )
 from mistral_cli.models import (
     ApiResult,
@@ -345,3 +353,83 @@ def test_envelope_excludes_source_path_without_leaking_unrelated_api_state() -> 
 def test_json_serialization_is_strict() -> None:
     with pytest.raises(ValueError):
         serialize_json({"not_json": float("nan")})
+
+
+def test_serialize_ndjson_is_single_ascii_line() -> None:
+    payload = {"text": "café \x1b[31mred\x1b[0m \x9b31m", "n": 1}
+    line = serialize_ndjson(payload)
+
+    assert line.endswith("\n")
+    assert "\n" not in line[:-1]
+    assert line == line.encode("ascii", errors="strict").decode("ascii")
+    assert json.loads(line) == payload
+
+
+def test_serialize_ndjson_survives_terminal_sanitization() -> None:
+    payload = {"text": "\x1b]0;evil\x07 \x9b31m plain"}
+    line = serialize_ndjson(payload)
+
+    assert sanitize_terminal_text(line) == line
+    assert json.loads(sanitize_terminal_text(line)) == payload
+
+
+def test_serialize_ndjson_rejects_nan() -> None:
+    with pytest.raises(ValueError):
+        serialize_ndjson({"value": float("nan")})
+
+
+def test_build_ok_record_shape() -> None:
+    record = build_ok_record(
+        source="doc.pdf",
+        envelope={"schema_version": 1},
+        saved_markdown="/tmp/a.md",
+        saved_json=None,
+    )
+    assert record == {
+        "schema_version": RECORD_SCHEMA_VERSION,
+        "status": "ok",
+        "source": "doc.pdf",
+        "envelope": {"schema_version": 1},
+        "saved": {"markdown": "/tmp/a.md", "json": None},
+    }
+
+
+def test_build_error_record_shape() -> None:
+    record = build_error_record(
+        source=None,
+        code="config_error",
+        message="No API key configured.",
+        status_code=None,
+    )
+    assert record == {
+        "schema_version": RECORD_SCHEMA_VERSION,
+        "status": "error",
+        "source": None,
+        "error": {
+            "code": "config_error",
+            "message": "No API key configured.",
+            "status_code": None,
+        },
+    }
+
+
+def test_build_dry_run_record_strips_sensitive_request_keys() -> None:
+    record = build_dry_run_record(
+        source="doc.pdf",
+        request_metadata={"model": "mistral-ocr-latest", "api_key": "secret"},
+    )
+    assert record == {
+        "schema_version": RECORD_SCHEMA_VERSION,
+        "status": "dry_run",
+        "source": "doc.pdf",
+        "request": {"model": "mistral-ocr-latest"},
+    }
+
+
+def test_build_summary_record_shape() -> None:
+    assert build_summary_record(succeeded=2, failed=1) == {
+        "schema_version": RECORD_SCHEMA_VERSION,
+        "status": "summary",
+        "succeeded": 2,
+        "failed": 1,
+    }
