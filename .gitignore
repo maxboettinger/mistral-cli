@@ -13,3 +13,6 @@ htmlcov/
 
 # Virtual environments
 .venv
+
+# Local session logging (Recall plugin)
+.recall/
