@@ -3,6 +3,10 @@ from __future__ import annotations
 import traceback
 from collections.abc import Iterable
 
+EXIT_FAILURE = 1
+EXIT_USAGE = 2
+EXIT_SETUP = 3
+
 
 class MistralCliError(Exception):
     """Base exception for expected mistral-cli failures."""
@@ -113,6 +117,19 @@ def translate_exception(error: Exception) -> MistralCliError:
     if status_code is not None:
         return _api_error(status_code)
     return MistralCliError("Unexpected failure. Run again with --debug for details.")
+
+
+def error_code(error: MistralCliError) -> str:
+    """Return the stable machine-readable code for a translated error."""
+    if isinstance(error, InputError):
+        return "input_error"
+    if isinstance(error, ConfigError):
+        return "config_error"
+    if isinstance(error, ApiError):
+        return "api_error"
+    if isinstance(error, PersistenceError):
+        return "persistence_error"
+    return "unexpected_error"
 
 
 def redact(text: str, secrets: Iterable[str]) -> str:
