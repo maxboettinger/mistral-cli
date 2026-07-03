@@ -7,9 +7,11 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import cast
 
-from mistral_cli.models import ApiResult, JSONValue
+from mistral_cli.models import ApiResult, JSONMapping, JSONValue
 
 _TIMESTAMP_SEPARATOR = "\N{EN DASH}"
+
+RECORD_SCHEMA_VERSION = 1
 
 
 def format_timestamp(seconds: float) -> str:
@@ -179,6 +181,71 @@ def build_envelope(result: ApiResult, cli_version: str) -> dict[str, JSONValue]:
         "response": _plain_json(result.response),
         "cli_version": cli_version,
     }
+
+
+def build_ok_record(
+    *,
+    source: str,
+    envelope: dict[str, JSONValue],
+    saved_markdown: str | None,
+    saved_json: str | None,
+) -> dict[str, JSONValue]:
+    """Build the stdout record for a successfully processed source."""
+    return {
+        "schema_version": RECORD_SCHEMA_VERSION,
+        "status": "ok",
+        "source": source,
+        "envelope": envelope,
+        "saved": {"markdown": saved_markdown, "json": saved_json},
+    }
+
+
+def build_error_record(
+    *,
+    source: str | None,
+    code: str,
+    message: str,
+    status_code: int | None,
+) -> dict[str, JSONValue]:
+    """Build the stdout record for a failed source or setup failure."""
+    return {
+        "schema_version": RECORD_SCHEMA_VERSION,
+        "status": "error",
+        "source": source,
+        "error": {"code": code, "message": message, "status_code": status_code},
+    }
+
+
+def build_dry_run_record(
+    *,
+    source: str,
+    request_metadata: JSONMapping,
+) -> dict[str, JSONValue]:
+    """Build the stdout record for a validated source under --dry-run."""
+    return {
+        "schema_version": RECORD_SCHEMA_VERSION,
+        "status": "dry_run",
+        "source": source,
+        "request": _plain_json(request_metadata, omit_sensitive=True),
+    }
+
+
+def build_summary_record(*, succeeded: int, failed: int) -> dict[str, JSONValue]:
+    """Build the final stdout record of a completed run."""
+    return {
+        "schema_version": RECORD_SCHEMA_VERSION,
+        "status": "summary",
+        "succeeded": succeeded,
+        "failed": failed,
+    }
+
+
+def serialize_ndjson(value: object) -> str:
+    """Serialize one ASCII-only NDJSON record line."""
+    return (
+        json.dumps(value, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
+        + "\n"
+    )
 
 
 def serialize_json(value: object) -> str:

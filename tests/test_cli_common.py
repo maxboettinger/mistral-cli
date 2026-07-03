@@ -4,14 +4,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-import click
 import pytest
 
 from mistral_cli.cli.common import (
     candidate_secrets,
     redact_result,
     report_error,
-    resolve_api_key,
     safe_terminal_text,
 )
 from mistral_cli.config import ConfigStore
@@ -25,7 +23,11 @@ def empty_strings() -> list[str]:
 
 @dataclass
 class RecordingConsoles:
+    stdout: list[str] = field(default_factory=empty_strings)
     stderr: list[str] = field(default_factory=empty_strings)
+
+    def write_stdout(self, payload: str) -> None:
+        self.stdout.append(payload)
 
     def write_stderr(self, payload: str) -> None:
         self.stderr.append(payload)
@@ -144,22 +146,3 @@ def test_redact_result_recursively_cleans_source_keys_and_values() -> None:
         "[REDACTED]": "first",
         "[REDACTED][REDACTED]": "response-[REDACTED]",
     }
-
-
-def test_resolve_api_key_reports_safe_setup_error(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
-    consoles = RecordingConsoles()
-    context = FakeContext(tmp_path / "missing.toml", False, consoles)
-
-    with pytest.raises(click.exceptions.Exit) as caught:
-        resolve_api_key(
-            context,
-            (),
-            setup_debug_context="setting up test command",
-        )
-
-    assert caught.value.exit_code == 1
-    assert "No API key configured" in "".join(consoles.stderr)

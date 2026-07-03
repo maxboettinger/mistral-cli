@@ -7,9 +7,9 @@ from typing import Protocol
 from mistral_cli.models import (
     ApiResult,
     JSONMapping,
-    JSONValue,
     OcrRequest,
     Operation,
+    ocr_request_metadata,
 )
 
 
@@ -32,23 +32,10 @@ class OcrService:
 
     def run(self, request: OcrRequest) -> ApiResult:
         response = self._gateway.ocr(request)
-        metadata: dict[str, JSONValue] = {
-            "model": request.model,
-            "pages": request.pages,
-            "table_format": request.table_format,
-            "extract_header": request.extract_header,
-            "extract_footer": request.extract_footer,
-            "include_images": request.include_images,
-            "image_limit": request.image_limit,
-            "image_min_size": request.image_min_size,
-            "include_blocks": request.include_blocks,
-            "confidence": request.confidence,
-            "timeout_ms": request.timeout_ms,
-        }
         return ApiResult(
             operation=Operation.OCR,
             source=request.source,
-            request_metadata=metadata,
+            request_metadata=ocr_request_metadata(request),
             response=response,
             created_at=self._clock(),
         )

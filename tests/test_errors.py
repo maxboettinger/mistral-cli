@@ -5,6 +5,7 @@ from collections.abc import Iterator
 import httpx
 import pytest
 
+from mistral_cli import errors as errors_module
 from mistral_cli.errors import (
     ApiError,
     ConfigError,
@@ -186,3 +187,23 @@ def test_debug_exception_includes_safe_public_sdk_diagnostics() -> None:
     assert "Headers:" in formatted
     assert "request contained [REDACTED]" in formatted
     assert api_key not in formatted
+
+
+def test_exit_code_constants_are_stable() -> None:
+    assert errors_module.EXIT_FAILURE == 1
+    assert errors_module.EXIT_USAGE == 2
+    assert errors_module.EXIT_SETUP == 3
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (errors_module.InputError("x"), "input_error"),
+        (ConfigError("x"), "config_error"),
+        (ApiError("x", status_code=429), "api_error"),
+        (errors_module.PersistenceError("x"), "persistence_error"),
+        (MistralCliError("x"), "unexpected_error"),
+    ],
+)
+def test_error_code_maps_taxonomy(error: MistralCliError, expected: str) -> None:
+    assert errors_module.error_code(error) == expected

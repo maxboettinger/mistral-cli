@@ -691,3 +691,58 @@ def test_keyboard_interrupt_aborts_and_does_not_process_later_sources(
     assert "Aborted!" in result.stderr
     assert [request.source.path for request in harness.gateway.requests] == [first]
     assert not (harness.output_root / "transcriptions").exists()
+
+
+def parse_ndjson(output: str) -> list[dict[str, JSONValue]]:
+    return [
+        cast("dict[str, JSONValue]", json.loads(line)) for line in output.splitlines()
+    ]
+
+
+def test_json_emits_records_and_summary(harness: Harness, tmp_path: Path) -> None:
+    source = make_audio(tmp_path)
+
+    result = harness.invoke("--json", str(source))
+
+    assert result.exit_code == 0
+    records = parse_ndjson(result.stdout)
+    assert [record["status"] for record in records] == ["ok", "summary"]
+    envelope = cast("dict[str, JSONValue]", records[0]["envelope"])
+    assert envelope["schema_version"] == 1
+    assert envelope["response"] == DEFAULT_RESPONSE
+    saved = cast("dict[str, JSONValue]", records[0]["saved"])
+    assert Path(cast(str, saved["json"])).is_file()
+
+
+def test_dry_run_json_needs_no_api_key(tmp_path: Path) -> None:
+    source = make_audio(tmp_path)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--config",
+            str(tmp_path / "missing.toml"),
+            "transcribe",
+            "--dry-run",
+            "--json",
+            "--diarize",
+            str(source),
+        ],
+        env={"MISTRAL_API_KEY": ""},
+    )
+
+    assert result.exit_code == 0
+    records = parse_ndjson(result.stdout)
+    assert [record["status"] for record in records] == ["dry_run", "summary"]
+    request = cast("dict[str, JSONValue]", records[0]["request"])
+    assert request["model"] == "voxtral-mini-latest"
+    assert request["diarize"] is True
+
+
+def test_quiet_suppresses_progress_lines(harness: Harness, tmp_path: Path) -> None:
+    source = make_audio(tmp_path)
+
+    result = harness.invoke("--quiet", str(source))
+
+    assert result.exit_code == 0
+    assert result.stderr == ""

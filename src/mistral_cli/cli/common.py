@@ -5,8 +5,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol, cast
 
-import click
-
 from mistral_cli.config import ConfigStore
 from mistral_cli.console import sanitize_terminal_text
 from mistral_cli.errors import (
@@ -19,6 +17,8 @@ from mistral_cli.models import ApiResult, InputSource, JSONMapping, JSONValue
 
 
 class CommandConsoles(Protocol):
+    def write_stdout(self, payload: str) -> None: ...
+
     def write_stderr(self, payload: str) -> None: ...
 
 
@@ -167,24 +167,3 @@ def write_debug_exception(
         context=debug_context,
     )
     context.consoles.write_stderr(safe_terminal_text(formatted, secrets))
-
-
-def resolve_api_key(
-    context: CommandContext,
-    secrets: tuple[str, ...],
-    *,
-    setup_debug_context: str,
-) -> tuple[str, tuple[str, ...]]:
-    """Resolve the API key or emit the shared safe setup failure."""
-    try:
-        api_key = ConfigStore(context.config_path).resolve_api_key()
-    except ConfigError as error:
-        report_error(
-            context,
-            error,
-            secrets=secrets,
-            setup_debug_context=setup_debug_context,
-            source_debug_prefix="",
-        )
-        raise click.exceptions.Exit(1) from error
-    return api_key, extend_secrets(secrets, api_key)
