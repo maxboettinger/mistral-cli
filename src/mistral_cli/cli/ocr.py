@@ -133,6 +133,27 @@ def _nonnegative_integer(
     is_flag=True,
     help="Also write OCR Markdown to standard output.",
 )
+@click.option(
+    "--json",
+    "write_json",
+    is_flag=True,
+    help="Write NDJSON result records to standard output (one per source).",
+)
+@click.option(
+    "--quiet",
+    is_flag=True,
+    help="Suppress progress and summary output.",
+)
+@click.option(
+    "--no-save",
+    is_flag=True,
+    help="Do not save result files (requires --json or --stdout).",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Validate sources and options without calling the API.",
+)
 @click.pass_obj
 def ocr(
     context: AppContext,
@@ -151,6 +172,10 @@ def ocr(
     output_format: str,
     timeout: float,
     write_stdout: bool,
+    write_json: bool,
+    quiet: bool,
+    no_save: bool,
+    dry_run: bool,
 ) -> None:
     """Extract readable text from local documents, images, or HTTP(S) URLs."""
     selected_table_format = (
@@ -190,9 +215,9 @@ def ocr(
             output_format=OutputFormat(output_format),
             output_dir=output_dir,
             write_markdown_stdout=write_stdout,
-            write_json_stdout=False,
-            quiet=False,
-            no_save=False,
-            dry_run=False,
+            write_json_stdout=write_json,
+            quiet=quiet,
+            no_save=no_save,
+            dry_run=dry_run,
         ),
     )

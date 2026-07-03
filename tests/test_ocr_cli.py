@@ -863,3 +863,239 @@ def test_keyboard_interrupt_aborts_and_does_not_process_later_sources(
     assert "Aborted!" in result.stderr
     assert [request.source.path for request in harness.gateway.requests] == [first]
     assert not (harness.output_root / "ocr").exists()
+
+
+def parse_ndjson(output: str) -> list[dict[str, JSONValue]]:
+    lines = output.splitlines()
+    assert all(line == line.encode("ascii", "strict").decode("ascii") for line in lines)
+    return [cast("dict[str, JSONValue]", json.loads(line)) for line in lines]
+
+
+def test_json_emits_one_record_per_source_and_summary(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    first = make_pdf(tmp_path, "first.pdf")
+    second = make_pdf(tmp_path, "second.pdf")
+
+    result = harness.invoke("--json", str(first), str(second))
+
+    assert result.exit_code == 0
+    records = parse_ndjson(result.stdout)
+    assert [record["status"] for record in records] == ["ok", "ok", "summary"]
+
+    first_record = records[0]
+    assert first_record["schema_version"] == 1
+    assert first_record["source"] == str(first)
+    envelope = cast("dict[str, JSONValue]", first_record["envelope"])
+    assert envelope["schema_version"] == 1
+    assert envelope["response"] == DEFAULT_RESPONSE
+    saved = cast("dict[str, JSONValue]", first_record["saved"])
+    assert Path(cast(str, saved["markdown"])).is_file()
+    assert Path(cast(str, saved["json"])).is_file()
+
+    assert records[-1] == {
+        "schema_version": 1,
+        "status": "summary",
+        "succeeded": 2,
+        "failed": 0,
+    }
+
+
+def test_json_reports_failures_in_band_and_exits_1(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    good = make_pdf(tmp_path, "good.pdf")
+
+    result = harness.invoke("--json", str(tmp_path / "missing.pdf"), str(good))
+
+    assert result.exit_code == 1
+    records = parse_ndjson(result.stdout)
+    assert [record["status"] for record in records] == ["error", "ok", "summary"]
+    error = cast("dict[str, JSONValue]", records[0]["error"])
+    assert error["code"] == "input_error"
+    assert isinstance(error["message"], str) and error["message"]
+    assert error["status_code"] is None
+    assert records[-1] == {
+        "schema_version": 1,
+        "status": "summary",
+        "succeeded": 1,
+        "failed": 1,
+    }
+
+
+def test_json_api_error_record_carries_status_code(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    source = make_pdf(tmp_path)
+    harness.gateway.failures[str(source)] = FakeSdkError(429, "secret")
+
+    result = harness.invoke("--json", str(source))
+
+    assert result.exit_code == 1
+    records = parse_ndjson(result.stdout)
+    error = cast("dict[str, JSONValue]", records[0]["error"])
+    assert error["code"] == "api_error"
+    assert error["status_code"] == 429
+
+
+def test_json_missing_api_key_emits_setup_error_record(
+    tmp_path: Path,
+) -> None:
+    source = make_pdf(tmp_path)
+
+    result = CliRunner().invoke(
+        cli,
+        ["--config", str(tmp_path / "missing.toml"), "ocr", "--json", str(source)],
+        env={"MISTRAL_API_KEY": ""},
+    )
+
+    assert result.exit_code == 3
+    records = parse_ndjson(result.stdout)
+    assert len(records) == 1
+    assert records[0]["status"] == "error"
+    assert records[0]["source"] is None
+    error = cast("dict[str, JSONValue]", records[0]["error"])
+    assert error["code"] == "config_error"
+
+
+def test_json_and_stdout_are_mutually_exclusive(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    source = make_pdf(tmp_path)
+
+    result = harness.invoke("--json", "--stdout", str(source))
+
+    assert result.exit_code == 2
+    assert "--json cannot be combined with --stdout." in result.stderr
+    assert harness.gateway.requests == []
+
+
+def test_quiet_suppresses_progress_but_not_errors(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    good = make_pdf(tmp_path, "good.pdf")
+
+    result = harness.invoke("--quiet", str(tmp_path / "missing.pdf"), str(good))
+
+    assert result.exit_code == 1
+    assert "Processing:" not in result.stderr
+    assert "Saved:" not in result.stderr
+    assert "Summary:" not in result.stderr
+    assert "missing.pdf" in result.stderr
+
+
+def test_no_save_writes_no_files_and_reports_null_paths(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    source = make_pdf(tmp_path)
+
+    result = harness.invoke("--no-save", "--json", str(source))
+
+    assert result.exit_code == 0
+    records = parse_ndjson(result.stdout)
+    assert records[0]["saved"] == {"markdown": None, "json": None}
+    assert not harness.output_root.exists()
+
+
+def test_no_save_requires_a_stdout_mode(harness: Harness, tmp_path: Path) -> None:
+    source = make_pdf(tmp_path)
+
+    result = harness.invoke("--no-save", str(source))
+
+    assert result.exit_code == 2
+    assert "--no-save requires --json or --stdout." in result.stderr
+
+
+def test_no_save_conflicts_with_output_dir(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    source = make_pdf(tmp_path)
+
+    result = harness.invoke(
+        "--no-save", "--json", "--output-dir", str(tmp_path / "out"), str(source)
+    )
+
+    assert result.exit_code == 2
+    assert "--no-save cannot be combined with --output-dir." in result.stderr
+
+
+def test_dry_run_validates_without_api_key_or_gateway(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = make_pdf(tmp_path)
+
+    def fail_gateway_factory(api_key: str) -> FakeGateway:
+        pytest.fail("gateway must not be constructed during --dry-run")
+
+    monkeypatch.setattr(ocr_cli, "create_gateway", fail_gateway_factory)
+    result = CliRunner().invoke(
+        cli,
+        ["--config", str(tmp_path / "missing.toml"), "ocr", "--dry-run", str(source)],
+        env={"MISTRAL_API_KEY": ""},
+    )
+
+    assert result.exit_code == 0
+    assert "Would process:" in result.stderr
+    assert "mistral-ocr-latest" in result.stderr
+    assert result.stdout == ""
+
+
+def test_dry_run_json_emits_request_records(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    source = make_pdf(tmp_path)
+
+    result = harness.invoke("--dry-run", "--json", "--pages", "0,2-4", str(source))
+
+    assert result.exit_code == 0
+    records = parse_ndjson(result.stdout)
+    assert [record["status"] for record in records] == ["dry_run", "summary"]
+    request = cast("dict[str, JSONValue]", records[0]["request"])
+    assert request["model"] == "mistral-ocr-latest"
+    assert request["pages"] == "0,2-4"
+    assert harness.gateway.requests == []
+    assert harness.api_keys == []
+
+
+def test_dry_run_reports_invalid_sources_and_exits_1(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    good = make_pdf(tmp_path)
+
+    result = harness.invoke("--dry-run", str(tmp_path / "missing.pdf"), str(good))
+
+    assert result.exit_code == 1
+    assert "Would process:" in result.stderr
+    assert harness.gateway.requests == []
+
+
+def test_json_output_survives_control_character_injection(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    hostile = "\x1b]0;evil\x07 \x9b31m plain café"
+    harness.gateway.response = {
+        "model": "mistral-ocr-latest",
+        "pages": [{"index": 0, "markdown": hostile}],
+    }
+    source = make_pdf(tmp_path)
+
+    result = harness.invoke("--json", "--no-save", str(source))
+
+    assert result.exit_code == 0
+    records = parse_ndjson(result.stdout)
+    envelope = cast("dict[str, JSONValue]", records[0]["envelope"])
+    response = cast("dict[str, JSONValue]", envelope["response"])
+    pages = cast("list[JSONValue]", response["pages"])
+    page = cast("dict[str, JSONValue]", pages[0])
+    assert page["markdown"] == hostile
