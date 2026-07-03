@@ -1,9 +1,12 @@
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
+import mistral_cli.cli.config as config_cli
 from mistral_cli.cli.main import cli
 from mistral_cli.config import ConfigStore
+from mistral_cli.errors import ConfigError
 
 
 def test_config_set_prompts_for_hidden_confirmed_api_key(tmp_path: Path) -> None:
@@ -199,6 +202,72 @@ def test_config_errors_are_clean_click_errors(tmp_path: Path) -> None:
     assert result.exit_code != 0
     assert "Error: Could not parse" in result.output
     assert "Traceback" not in result.output
+
+
+def test_config_show_malformed_file_has_redacted_debug_traceback_only_in_debug(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("not = [valid", encoding="utf-8")
+    secret = "environment-secret"
+    runner = CliRunner()
+
+    normal = runner.invoke(
+        cli,
+        ["--config", str(path), "config", "show"],
+        env={"MISTRAL_API_KEY": secret},
+    )
+    debug = runner.invoke(
+        cli,
+        ["--debug", "--config", str(path), "config", "show"],
+        env={"MISTRAL_API_KEY": secret},
+    )
+
+    assert normal.exit_code != 0
+    assert debug.exit_code != 0
+    assert "Traceback" not in normal.output
+    assert "Traceback (most recent call last)" in debug.output
+    assert "mistral_cli.errors.ConfigError" in debug.output
+    assert "Context: showing configuration" in debug.output
+    assert secret not in normal.output + debug.output
+
+
+def test_config_set_write_failure_debug_redacts_entered_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "config.toml"
+    secret = "mistral-secret-key"
+    payload = "mistral-\x1b[31msecret-key"
+
+    def fail_set(store: ConfigStore, name: str, value: str) -> None:
+        assert store.path == path
+        assert name == "api-key"
+        assert value == secret
+        raise ConfigError(f"Could not write key {payload}")
+
+    monkeypatch.setattr(config_cli.ConfigStore, "set", fail_set)
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--debug",
+            "--config",
+            str(path),
+            "config",
+            "set",
+            "api-key",
+            "--stdin",
+        ],
+        input=f"{secret}\n",
+        env={"MISTRAL_API_KEY": ""},
+    )
+
+    assert result.exit_code != 0
+    assert "Traceback (most recent call last)" in result.output
+    assert "mistral_cli.errors.ConfigError" in result.output
+    assert "Context: setting configuration api-key" in result.output
+    assert secret not in result.output
+    assert "[REDACTED]" in result.output
 
 
 def test_config_show_invalid_utf8_is_a_clean_click_error(tmp_path: Path) -> None:

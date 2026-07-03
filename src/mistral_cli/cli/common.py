@@ -9,20 +9,17 @@ import click
 
 from mistral_cli.config import ConfigStore
 from mistral_cli.console import sanitize_terminal_text
-from mistral_cli.errors import ConfigError, redact, translate_exception
+from mistral_cli.errors import (
+    ConfigError,
+    format_debug_exception,
+    redact,
+    translate_exception,
+)
 from mistral_cli.models import ApiResult, InputSource, JSONMapping, JSONValue
 
 
 class CommandConsoles(Protocol):
     def write_stderr(self, payload: str) -> None: ...
-
-    def print_debug_exception(
-        self,
-        error: Exception,
-        *,
-        secrets: tuple[str, ...],
-        context: str | None = None,
-    ) -> None: ...
 
 
 class CommandContext(Protocol):
@@ -37,8 +34,15 @@ class CommandContext(Protocol):
 
 
 def safe_terminal_text(text: str, secrets: tuple[str, ...]) -> str:
-    """Redact secrets before removing terminal control sequences."""
-    return sanitize_terminal_text(redact(text, secrets))
+    """Sanitize terminal controls and redact every resulting secret variant."""
+    safe_text = sanitize_terminal_text(text)
+    secret_variants: list[str] = []
+    for secret in secrets:
+        if not secret.strip():
+            continue
+        secret_variants.append(secret)
+        secret_variants.append(sanitize_terminal_text(secret))
+    return redact(safe_text, secret_variants)
 
 
 def candidate_secrets(context: CommandContext) -> tuple[str, ...]:
@@ -142,11 +146,27 @@ def report_error(
     )
     context.consoles.write_stderr(safe_terminal_text(line, secrets))
     if context.debug:
-        context.consoles.print_debug_exception(
+        write_debug_exception(
+            context,
             error,
             secrets=secrets,
-            context=debug_context,
+            debug_context=debug_context,
         )
+
+
+def write_debug_exception(
+    context: CommandContext,
+    error: Exception,
+    *,
+    secrets: tuple[str, ...],
+    debug_context: str,
+) -> None:
+    """Write traceback diagnostics through the shared safe terminal boundary."""
+    formatted = format_debug_exception(
+        error,
+        context=debug_context,
+    )
+    context.consoles.write_stderr(safe_terminal_text(formatted, secrets))
 
 
 def resolve_api_key(

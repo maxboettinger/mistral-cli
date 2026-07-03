@@ -10,10 +10,12 @@ import pytest
 from mistral_cli.cli.common import (
     candidate_secrets,
     redact_result,
+    report_error,
     resolve_api_key,
     safe_terminal_text,
 )
 from mistral_cli.config import ConfigStore
+from mistral_cli.errors import ConfigError
 from mistral_cli.models import ApiResult, InputSource, Operation, SourceKind
 
 
@@ -21,28 +23,12 @@ def empty_strings() -> list[str]:
     return []
 
 
-def empty_optional_strings() -> list[str | None]:
-    return []
-
-
 @dataclass
 class RecordingConsoles:
     stderr: list[str] = field(default_factory=empty_strings)
-    debug_contexts: list[str | None] = field(default_factory=empty_optional_strings)
 
     def write_stderr(self, payload: str) -> None:
         self.stderr.append(payload)
-
-    def print_debug_exception(
-        self,
-        error: Exception,
-        *,
-        secrets: tuple[str, ...],
-        context: str | None = None,
-    ) -> None:
-        assert error
-        assert isinstance(secrets, tuple)
-        self.debug_contexts.append(context)
 
 
 @dataclass(frozen=True)
@@ -86,6 +72,38 @@ def test_safe_terminal_text_redacts_before_sanitizing_control_key() -> None:
 
     assert result == "prefix [REDACTED] suffix"
     assert "abcdef" not in result
+
+
+def test_safe_terminal_text_redacts_secret_split_by_terminal_controls() -> None:
+    secret = "mistral-secret-key"
+    payload = "mistral-\x1b[31msecret-key"
+
+    result = safe_terminal_text(f"prefix {payload} suffix", (secret,))
+
+    assert result == "prefix [REDACTED] suffix"
+    assert secret not in result
+
+
+def test_report_error_redacts_secret_split_by_controls_in_source_and_error(
+    tmp_path: Path,
+) -> None:
+    secret = "mistral-secret-key"
+    payload = "mistral-\x1b[31msecret-key"
+    consoles = RecordingConsoles()
+    context = FakeContext(tmp_path / "config.toml", False, consoles)
+
+    report_error(
+        context,
+        ConfigError(f"failed for {payload}"),
+        secrets=(secret,),
+        setup_debug_context="setting up test",
+        source_debug_prefix="Test source",
+        source=f"https://example.test/{payload}.mp3",
+    )
+
+    output = "".join(consoles.stderr)
+    assert secret not in output
+    assert output.count("[REDACTED]") == 2
 
 
 def test_redact_result_recursively_cleans_source_keys_and_values() -> None:
@@ -145,4 +163,3 @@ def test_resolve_api_key_reports_safe_setup_error(
 
     assert caught.value.exit_code == 1
     assert "No API key configured" in "".join(consoles.stderr)
-    assert consoles.debug_contexts == []

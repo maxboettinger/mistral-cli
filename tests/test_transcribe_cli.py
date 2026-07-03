@@ -415,6 +415,31 @@ def test_stdout_is_exact_saved_sanitized_markdown_and_still_persists(
     assert "beforeredafterreturn" in persisted
 
 
+def test_terminal_controls_cannot_split_secret_in_persisted_markdown_or_stdout(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    secret = "mistral-secret-key"
+    payload = "mistral-\x1b[31msecret-key"
+    source = make_audio(tmp_path)
+    harness.gateway.response = {"text": f"before {payload} after"}
+
+    result = harness.invoke(
+        str(source),
+        "--stdout",
+        "--format",
+        "md",
+        env={"MISTRAL_API_KEY": secret},
+    )
+
+    saved = next((harness.output_root / "transcriptions").glob("*.md"))
+    persisted = saved.read_text(encoding="utf-8")
+    assert result.exit_code == 0
+    assert result.stdout == persisted
+    assert secret not in result.stdout + result.stderr + persisted
+    assert "[REDACTED]" in persisted
+
+
 def test_multiple_stdout_documents_have_one_separator_between_successes(
     harness: Harness,
     tmp_path: Path,

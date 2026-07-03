@@ -715,6 +715,33 @@ def test_terminal_sanitized_markdown_is_identical_in_stdout_and_storage(
     assert "beforeredafterreturn" in persisted
 
 
+def test_terminal_controls_cannot_split_secret_in_persisted_markdown_or_stdout(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    secret = "mistral-secret-key"
+    payload = "mistral-\x1b[31msecret-key"
+    source = make_pdf(tmp_path)
+    harness.gateway.response = {
+        "pages": [{"index": 0, "markdown": f"before {payload} after"}],
+    }
+
+    result = harness.invoke(
+        str(source),
+        "--stdout",
+        "--format",
+        "md",
+        env={"MISTRAL_API_KEY": secret},
+    )
+
+    saved = next((harness.output_root / "ocr").glob("*.md"))
+    persisted = saved.read_text(encoding="utf-8")
+    assert result.exit_code == 0
+    assert result.stdout == persisted
+    assert secret not in result.stdout + result.stderr + persisted
+    assert "[REDACTED]" in persisted
+
+
 def test_failed_middle_source_continues_saves_successes_and_separates_stdout(
     harness: Harness,
     tmp_path: Path,

@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NoReturn, cast
 
 import click
 import tomli_w
 
+from mistral_cli.cli.common import (
+    candidate_secrets,
+    extend_secrets,
+    safe_terminal_text,
+    write_debug_exception,
+)
 from mistral_cli.config import ConfigStore
 from mistral_cli.errors import ConfigError
 
@@ -16,6 +22,23 @@ if TYPE_CHECKING:
 @click.group()
 def config() -> None:
     """Manage CLI configuration."""
+
+
+def _raise_config_error(
+    context: AppContext,
+    error: ConfigError,
+    *,
+    secrets: tuple[str, ...],
+    debug_context: str,
+) -> NoReturn:
+    if context.debug:
+        write_debug_exception(
+            context,
+            error,
+            secrets=secrets,
+            debug_context=debug_context,
+        )
+    raise click.ClickException(safe_terminal_text(str(error), secrets)) from error
 
 
 @config.command(
@@ -59,11 +82,17 @@ def set_value(context: click.Context, name: str, read_stdin: bool) -> None:
             confirmation_prompt=True,
         )
 
+    app_context = cast("AppContext", context.obj)
     try:
-        app_context = cast("AppContext", context.obj)
         ConfigStore(app_context.config_path).set(name, value)
     except ConfigError as error:
-        raise click.ClickException(str(error)) from error
+        secrets = extend_secrets(candidate_secrets(app_context), value)
+        _raise_config_error(
+            app_context,
+            error,
+            secrets=secrets,
+            debug_context=f"setting configuration {name}",
+        )
 
     click.echo("Configuration updated.")
 
@@ -75,7 +104,12 @@ def show(context: AppContext) -> None:
     try:
         values = ConfigStore(context.config_path).redacted()
     except ConfigError as error:
-        raise click.ClickException(str(error)) from error
+        _raise_config_error(
+            context,
+            error,
+            secrets=candidate_secrets(context),
+            debug_context="showing configuration",
+        )
 
     click.echo(tomli_w.dumps(values), nl=False)
 
@@ -88,7 +122,12 @@ def unset(context: AppContext, name: str) -> None:
     try:
         removed = ConfigStore(context.config_path).unset(name)
     except ConfigError as error:
-        raise click.ClickException(str(error)) from error
+        _raise_config_error(
+            context,
+            error,
+            secrets=candidate_secrets(context),
+            debug_context=f"unsetting configuration {name}",
+        )
 
     if removed:
         click.echo(f"{name} removed.")
