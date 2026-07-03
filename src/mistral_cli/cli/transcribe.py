@@ -212,7 +212,7 @@ def _create_runtime(
 )
 @click.option(
     "--timestamps",
-    type=click.Choice(["segment", "word"]),
+    type=click.Choice(["segment", "word"], case_sensitive=False),
     multiple=True,
     help="Timestamp granularity to request (repeatable).",
 )

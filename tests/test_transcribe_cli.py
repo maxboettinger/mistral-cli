@@ -245,6 +245,18 @@ def test_language_maps_exactly(harness: Harness, tmp_path: Path) -> None:
     assert harness.gateway.requests[0].language == "de"
 
 
+def test_timestamps_choice_is_case_insensitive(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    source = make_audio(tmp_path)
+
+    result = harness.invoke(str(source), "--timestamps", "SEGMENT")
+
+    assert result.exit_code == 0, result.output
+    assert harness.gateway.requests[0].timestamps == ("segment",)
+
+
 @pytest.mark.parametrize(
     ("arguments", "message"),
     [
