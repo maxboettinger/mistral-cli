@@ -4,6 +4,7 @@ from pathlib import Path
 import click
 
 from mistral_cli import __version__
+from mistral_cli.cli.agent import agent
 from mistral_cli.cli.config import config
 from mistral_cli.cli.ocr import ocr
 from mistral_cli.cli.transcribe import transcribe
@@ -19,7 +20,12 @@ class AppContext:
     consoles: ConsoleBundle
 
 
-@click.group()
+@click.group(
+    epilog=(
+        "Run 'mistral agent' for agent-oriented usage docs and "
+        "'mistral agent --schema' for the JSON output schema."
+    )
+)
 @click.version_option(version=__version__)
 @click.option("--debug", is_flag=True, help="Show detailed error information.")
 @click.option(
@@ -40,6 +46,7 @@ def cli(ctx: click.Context, debug: bool, config_path: Path) -> None:
     )
 
 
+cli.add_command(agent)
 cli.add_command(config)
 cli.add_command(ocr)
 cli.add_command(transcribe)
