@@ -101,6 +101,38 @@ class SavedResult:
     json: Path | None = None
 
 
+def ocr_request_metadata(request: OcrRequest) -> dict[str, JSONValue]:
+    """Build the JSON-safe request metadata echoed into result envelopes."""
+    return {
+        "model": request.model,
+        "pages": request.pages,
+        "table_format": request.table_format,
+        "extract_header": request.extract_header,
+        "extract_footer": request.extract_footer,
+        "include_images": request.include_images,
+        "image_limit": request.image_limit,
+        "image_min_size": request.image_min_size,
+        "include_blocks": request.include_blocks,
+        "confidence": request.confidence,
+        "timeout_ms": request.timeout_ms,
+    }
+
+
+def transcription_request_metadata(
+    request: TranscriptionRequest,
+) -> dict[str, JSONValue]:
+    """Build the JSON-safe request metadata echoed into result envelopes."""
+    return {
+        "model": request.model,
+        "language": request.language,
+        "temperature": request.temperature,
+        "diarize": request.diarize,
+        "context_bias": list(request.context_bias),
+        "timestamps": list(request.timestamps),
+        "timeout_ms": request.timeout_ms,
+    }
+
+
 def _validate_model(model: str) -> None:
     if not model.strip():
         raise InputError("--model must not be blank.")

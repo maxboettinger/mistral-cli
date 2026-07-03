@@ -21,6 +21,8 @@ from mistral_cli.models import (
     TranscriptionRequest,
     build_ocr_request,
     build_transcription_request,
+    ocr_request_metadata,
+    transcription_request_metadata,
 )
 
 
@@ -410,3 +412,51 @@ def test_transcription_timeout_too_large_for_milliseconds_is_rejected(
             model="audio",
             timeout_seconds=1e306,
         )
+
+
+def test_ocr_request_metadata_mirrors_request(source: InputSource) -> None:
+    request = build_ocr_request(
+        source=source,
+        model="mistral-ocr-latest",
+        pages="0,2-4",
+        table_format="html",
+        extract_header=True,
+        include_images=True,
+        image_limit=3,
+        confidence="word",
+        timeout_seconds=10,
+    )
+    assert ocr_request_metadata(request) == {
+        "model": "mistral-ocr-latest",
+        "pages": "0,2-4",
+        "table_format": "html",
+        "extract_header": True,
+        "extract_footer": False,
+        "include_images": True,
+        "image_limit": 3,
+        "image_min_size": None,
+        "include_blocks": False,
+        "confidence": "word",
+        "timeout_ms": 10_000,
+    }
+
+
+def test_transcription_request_metadata_mirrors_request(source: InputSource) -> None:
+    request = build_transcription_request(
+        source=source,
+        model="voxtral-mini-latest",
+        temperature=0.2,
+        diarize=True,
+        context_bias=("Mistral",),
+        timestamps=("segment",),
+        timeout_seconds=10,
+    )
+    assert transcription_request_metadata(request) == {
+        "model": "voxtral-mini-latest",
+        "language": None,
+        "temperature": 0.2,
+        "diarize": True,
+        "context_bias": ["Mistral"],
+        "timestamps": ["segment"],
+        "timeout_ms": 10_000,
+    }

@@ -7,9 +7,9 @@ from typing import Protocol
 from mistral_cli.models import (
     ApiResult,
     JSONMapping,
-    JSONValue,
     Operation,
     TranscriptionRequest,
+    transcription_request_metadata,
 )
 
 
@@ -32,19 +32,10 @@ class TranscriptionService:
 
     def run(self, request: TranscriptionRequest) -> ApiResult:
         response = self._gateway.transcribe(request)
-        metadata: dict[str, JSONValue] = {
-            "model": request.model,
-            "language": request.language,
-            "temperature": request.temperature,
-            "diarize": request.diarize,
-            "context_bias": list(request.context_bias),
-            "timestamps": list(request.timestamps),
-            "timeout_ms": request.timeout_ms,
-        }
         return ApiResult(
             operation=Operation.TRANSCRIPTION,
             source=request.source,
-            request_metadata=metadata,
+            request_metadata=transcription_request_metadata(request),
             response=response,
             created_at=self._clock(),
         )
