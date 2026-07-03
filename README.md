@@ -1,50 +1,205 @@
 # mistral-cli
 
-A modern command-line interface for extracting structured content with
-[Mistral OCR](https://docs.mistral.ai/studio-api/document-processing/basic_ocr)
-and transcribing audio with
-[Mistral Speech-to-Text](https://docs.mistral.ai/studio-api/audio/speech_to_text/offline_transcription).
+**A modern command-line interface for [Mistral OCR](https://docs.mistral.ai/studio-api/document-processing/basic_ocr) and [Mistral audio transcription](https://docs.mistral.ai/studio-api/audio/speech_to_text/offline_transcription).**
 
-It accepts local files and public HTTP(S) URLs, saves durable Markdown and JSON
-results, supports batch processing, and keeps progress output separate from
-pipe-friendly Markdown output.
+Turn PDFs and images into structured Markdown, and turn audio into text — from
+your terminal, in one command. Point it at a local file or a public URL; it
+saves durable Markdown and JSON, processes batches, and keeps progress output
+cleanly separated from pipe-friendly results.
+
+```console
+mistral ocr report.pdf
+mistral transcribe interview.mp3
+```
+
+---
+
+## Highlights
+
+- **Two capabilities, one tool** — document OCR and speech-to-text behind a
+  single `mistral` command.
+- **Local files or public URLs** — local files are read and sent as base64 data
+  URLs; public HTTP(S) URLs are passed through.
+- **Durable results** — every run saves timestamped Markdown and a stable JSON
+  envelope you can diff, re-render, or feed to other tools.
+- **Batch-friendly** — pass many sources at once; one failure never discards the
+  successful results.
+- **Pipe-clean output** — Markdown goes to stdout on request; progress, paths,
+  and errors stay on stderr.
+- **Secure by default** — API keys are never passed as CLI arguments, are
+  redacted from all output (including tracebacks), and are stored with
+  restrictive file permissions.
 
 ## Requirements
 
 - Python 3.11 or newer
-- A Mistral API key
+- A [Mistral API key](https://console.mistral.ai/)
 
-## Installation
+---
 
-Install as an isolated command with [uv](https://docs.astral.sh/uv/):
+## Quickstart
+
+**1. Install** as an isolated command with [uv](https://docs.astral.sh/uv/)
+(or [pipx](https://pipx.pypa.io/)):
 
 ```console
 uv tool install .
 ```
 
-Alternatively, use [pipx](https://pipx.pypa.io/):
-
-```console
-pipx install .
-```
-
-For development from a source checkout:
-
-```console
-uv sync
-uv run mistral --help
-```
-
-## Configuration
-
-Store an API key using a hidden, confirmed prompt:
+**2. Store your API key** (hidden, confirmed prompt):
 
 ```console
 mistral config set api-key
 ```
 
-For automation, pass a single line over standard input. For example, this
-reads the key without echoing it or putting it in the command's argument list:
+**3. Run it:**
+
+```console
+# Extract text from a PDF or image
+mistral ocr report.pdf
+
+# Transcribe audio
+mistral transcribe interview.mp3
+```
+
+Results are saved to `~/.mistral/ocr/` and `~/.mistral/transcriptions/` as both
+Markdown and JSON. Add `--stdout` to also print the Markdown for piping:
+
+```console
+mistral ocr report.pdf --stdout | glow -
+```
+
+That's the whole loop. The sections below add detail as you need it.
+
+---
+
+## Usage
+
+### OCR
+
+Process a local PDF or image, or a publicly accessible URL:
+
+```console
+mistral ocr report.pdf
+mistral ocr https://example.com/report.pdf
+```
+
+> Public URLs must be directly reachable by Mistral. Local files are read and
+> sent as base64 data URLs.
+
+Common options:
+
+```console
+mistral ocr report.pdf \
+  --pages 0,2-4 \
+  --table-format markdown \
+  --extract-header \
+  --extract-footer \
+  --include-images --image-limit 20 --image-min-size 100 \
+  --include-blocks \
+  --confidence word
+```
+
+| Option | Description |
+| --- | --- |
+| `--pages TEXT` | Zero-based page numbers and ascending ranges, e.g. `0,2-4`. |
+| `--table-format inline\|markdown\|html` | Table representation. Default: `inline`. |
+| `--extract-header` / `--extract-footer` | Return those regions separately. |
+| `--include-images` | Request base64 image data. |
+| `--image-limit N` / `--image-min-size N` | Bound returned images (require `--include-images`; nonnegative). |
+| `--include-blocks` | Request structured blocks and bounding boxes. |
+| `--confidence none\|page\|word` | Confidence detail level. |
+| `--model TEXT` | OCR model. Default: `mistral-ocr-latest`. |
+| `--timeout SECONDS` | Positive request timeout. Default: `300`. |
+
+Some options depend on model capabilities — see the
+[official OCR documentation](https://docs.mistral.ai/studio-api/document-processing/basic_ocr).
+
+### Transcription
+
+Transcribe a local audio file or a public audio URL:
+
+```console
+mistral transcribe interview.mp3
+mistral transcribe https://example.com/interview.mp3
+```
+
+Request speaker labels, contextual hints, and timestamps:
+
+```console
+mistral transcribe interview.mp3 \
+  --temperature 0.2 \
+  --diarize \
+  --context-bias Mistral --context-bias Voxtral \
+  --timestamps segment
+```
+
+| Option | Description |
+| --- | --- |
+| `--language CODE` | Source language code. |
+| `--temperature FLOAT` | Sampling temperature; must be finite. |
+| `--diarize` | Request speaker identification. |
+| `--context-bias TEXT` | Contextual hint; repeatable, up to 100 values. |
+| `--timestamps segment\|word` | Repeatable; duplicates ignored. |
+| `--model TEXT` | Transcription model. Default: `voxtral-mini-latest`. |
+| `--timeout SECONDS` | Positive request timeout. Default: `300`. |
+
+> `--language` and `--timestamps` cannot be combined — the Mistral API does not
+> support that pairing.
+
+---
+
+## Results & batch processing
+
+Both commands share these output options:
+
+| Option | Description |
+| --- | --- |
+| `--format md\|json\|both` | Which formats to save. Default: `both`. |
+| `--output-dir DIRECTORY` | Override the default result directory. |
+| `--stdout` | Also write rendered Markdown to standard output. |
+
+**Where results go.** By default, into per-command directories, named with a UTC
+timestamp followed by the original source filename:
+
+```text
+~/.mistral/ocr/20260703T121314.123456Z-report.pdf.md
+~/.mistral/ocr/20260703T121314.123456Z-report.pdf.json
+~/.mistral/transcriptions/...
+```
+
+- **Markdown** contains provenance and readable page or transcript content.
+- **JSON** is a stable envelope: `schema_version`, `created_at`, source metadata,
+  request options, the complete API response, and `cli_version`.
+
+**Batch processing.** Pass multiple local files and URLs to process them
+sequentially:
+
+```console
+mistral ocr chapter-1.pdf chapter-2.pdf https://example.com/appendix.pdf
+mistral transcribe part-1.mp3 part-2.mp3
+```
+
+A failure for one source does not discard successful results or stop later
+sources. The final summary reports successes and failures, and any failure
+produces a nonzero exit status. With `--stdout` and multiple successes, Markdown
+documents are separated by a horizontal rule.
+
+---
+
+## Configuration
+
+### API key
+
+The key is resolved from `MISTRAL_API_KEY` first, then the stored config.
+
+Store it via a hidden, confirmed prompt:
+
+```console
+mistral config set api-key
+```
+
+For automation, pass a single line over stdin (no echo, not in the arg list):
 
 ```console
 read -r -s MISTRAL_KEY
@@ -52,8 +207,7 @@ printf '%s\n' "$MISTRAL_KEY" | mistral config set api-key --stdin
 unset MISTRAL_KEY
 ```
 
-An API key provided through `MISTRAL_API_KEY` takes precedence over the
-configured value:
+Or override per-invocation with the environment variable:
 
 ```console
 MISTRAL_API_KEY="..." mistral ocr report.pdf
@@ -67,158 +221,41 @@ mistral config path
 mistral config unset api-key
 ```
 
-The default configuration path is `~/.mistral/config.toml`. The CLI creates
-its configuration directories with mode `0700` and the file with mode `0600`
-on POSIX systems, and writes updates atomically. The key is still stored as
-plaintext, so protect the account and backups that contain this file. Use the
-root `--config FILE` option to select another configuration file:
+### Config file
+
+The default path is `~/.mistral/config.toml`. On POSIX systems the CLI creates
+its config directory with mode `0700` and the file with mode `0600`, and writes
+updates atomically. The key is stored as **plaintext**, so protect the account
+and any backups that contain this file.
+
+Select a different file with the root `--config` option:
 
 ```console
 mistral --config ./private-config.toml config set api-key
 ```
 
-## OCR
+---
 
-Process a local PDF:
-
-```console
-mistral ocr report.pdf
-```
-
-Process a public document or image URL:
-
-```console
-mistral ocr https://example.com/report.pdf
-```
-
-Public URLs must be directly accessible to Mistral. Local files are read and
-sent as base64 data URLs.
-
-Useful OCR options include:
-
-```console
-mistral ocr report.pdf \
-  --model mistral-ocr-latest \
-  --pages 0,2-4 \
-  --table-format markdown \
-  --extract-header \
-  --extract-footer \
-  --include-images \
-  --image-limit 20 \
-  --image-min-size 100 \
-  --include-blocks \
-  --confidence word \
-  --timeout 300
-```
-
-- `--pages TEXT` accepts zero-based page numbers and ascending ranges such as
-  `0,2-4`.
-- `--table-format inline|markdown|html` controls table representation;
-  `inline` is the default.
-- `--extract-header` and `--extract-footer` return those regions separately.
-- `--include-images` requests base64 image data. `--image-limit` and
-  `--image-min-size` require it and accept nonnegative integers.
-- `--include-blocks` requests structured blocks and bounding boxes.
-- `--confidence none|page|word` controls confidence detail.
-- `--model` selects the OCR model; the default is `mistral-ocr-latest`.
-- `--timeout` is a positive request timeout in seconds and defaults to `300`.
-
-Some options depend on model capabilities. See the official OCR documentation
-for current model requirements.
-
-## Transcription
-
-Transcribe a local audio file:
-
-```console
-mistral transcribe interview.mp3
-```
-
-Transcribe a public audio URL:
-
-```console
-mistral transcribe https://example.com/interview.mp3
-```
-
-Request speaker labels, contextual hints, and timestamps:
-
-```console
-mistral transcribe interview.mp3 \
-  --model voxtral-mini-latest \
-  --temperature 0.2 \
-  --diarize \
-  --context-bias Mistral \
-  --context-bias Voxtral \
-  --timestamps segment \
-  --timestamps word \
-  --timeout 300
-```
-
-- `--language CODE` supplies the source language.
-- `--temperature FLOAT` controls sampling and must be finite.
-- `--diarize` requests speaker identification.
-- `--context-bias TEXT` is repeatable, with at most 100 values.
-- `--timestamps segment|word` is repeatable; duplicate values are ignored.
-- `--model` selects the transcription model; the default is
-  `voxtral-mini-latest`.
-- `--timeout` is a positive request timeout in seconds and defaults to `300`.
-
-`--language` and `--timestamps` cannot be combined because the Mistral API
-does not support that combination.
-
-## Results and batch processing
-
-Both processing commands share these output options:
-
-- `--format md|json|both` chooses saved formats and defaults to `both`.
-- `--output-dir DIRECTORY` overrides the operation's default result directory.
-- `--stdout` also writes the rendered Markdown to standard output. Progress,
-  saved paths, summaries, and errors remain on standard error.
-
-By default, results are written to:
-
-```text
-~/.mistral/ocr/
-~/.mistral/transcriptions/
-```
-
-Names use a UTC timestamp followed by the original source filename:
-
-```text
-20260703T121314.123456Z-report.pdf.md
-20260703T121314.123456Z-report.pdf.json
-```
-
-Markdown contains provenance and readable page or transcript content. JSON is
-a stable envelope with `schema_version`, `created_at`, source metadata, request
-options, the complete API response, and `cli_version`.
-
-Pass multiple local files and URLs to process them sequentially:
-
-```console
-mistral ocr chapter-1.pdf chapter-2.pdf https://example.com/appendix.pdf
-mistral transcribe part-1.mp3 part-2.mp3
-```
-
-A failure for one source does not discard successful results or stop later
-sources. The final summary reports successes and failures, and any failure
-causes a nonzero exit status. When `--stdout` is used with multiple successful
-sources, Markdown documents are separated by a horizontal rule.
-
-## Errors, debugging, and security
+## Errors, debugging & security
 
 Expected input, configuration, network, API, and persistence failures are
-reported concisely without a traceback. Put the root `--debug` flag before the
-command to include diagnostic tracebacks:
+reported concisely, without a traceback. Put the root `--debug` flag **before**
+the command to include diagnostic tracebacks:
 
 ```console
 mistral --debug transcribe interview.mp3
 ```
 
-The CLI redacts known API keys from terminal output and persisted results,
-including debug output. It never accepts an API key as a command-line value:
-use the hidden prompt, `--stdin`, or `MISTRAL_API_KEY`. Avoid embedding other
-credentials in source URLs because URLs are recorded as result provenance.
+Security properties:
+
+- The CLI **never** accepts an API key as a command-line value. Use the hidden
+  prompt, `--stdin`, or `MISTRAL_API_KEY`.
+- Known API keys are **redacted** from terminal output and persisted results,
+  including debug output.
+- Avoid embedding credentials in source URLs — URLs are recorded as result
+  provenance.
+
+---
 
 ## Development
 
@@ -226,6 +263,7 @@ Install locked runtime and development dependencies:
 
 ```console
 uv sync
+uv run mistral --help
 ```
 
 Run the full quality gates:
@@ -239,25 +277,35 @@ uv lock --check
 uv build
 ```
 
-The package uses a `src/` layout with clear boundaries:
+### Architecture
 
-- `cli/` defines Click commands, validation flow, and Rich console reporting.
-- `models.py` contains SDK-independent request and result types.
-- `services/` implements OCR and transcription use cases behind gateway
-  protocols.
-- `mistral_client.py` is the adapter for the official Mistral Python SDK.
-- `config.py` handles typed TOML configuration and secure atomic writes.
-- `sources.py`, `formatters.py`, and `storage.py` resolve inputs, render
-  results, and persist collision-safe output atomically.
-- `errors.py` and `console.py` translate, redact, and safely present failures.
+The package uses a `src/` layout with clear boundaries between the CLI surface,
+domain models, use cases, and the SDK adapter:
 
-Tests isolate the API behind fakes and cover command behavior, mapping,
-formatting, configuration, security boundaries, and persistence.
+| Module | Responsibility |
+| --- | --- |
+| `cli/` | Click commands, validation flow, and Rich console reporting. |
+| `models.py` | SDK-independent request and result types. |
+| `services/` | OCR and transcription use cases behind gateway protocols. |
+| `mistral_client.py` | Adapter for the official Mistral Python SDK. |
+| `config.py` | Typed TOML configuration and secure atomic writes. |
+| `sources.py` | Resolves local files and URLs into request inputs. |
+| `formatters.py` | Renders results to Markdown. |
+| `storage.py` | Persists collision-safe output atomically. |
+| `errors.py`, `console.py` | Translate, redact, and safely present failures. |
+
+The request flow is: **CLI** parses and validates options → **services** invoke
+the use case through a gateway protocol → **mistral_client** calls the SDK →
+**formatters** and **storage** render and persist results. Tests isolate the API
+behind fakes and cover command behavior, mapping, formatting, configuration,
+security boundaries, and persistence.
+
+---
 
 ## References
 
 - [Mistral OCR](https://docs.mistral.ai/studio-api/document-processing/basic_ocr)
 - [Mistral offline transcription](https://docs.mistral.ai/studio-api/audio/speech_to_text/offline_transcription)
-- [Mistral audio transcription API endpoint](https://docs.mistral.ai/api/endpoint/audio/transcriptions)
+- [Mistral audio transcription endpoint](https://docs.mistral.ai/api/endpoint/audio/transcriptions)
 - [Click documentation](https://click.palletsprojects.com/)
 - [Rich documentation](https://rich.readthedocs.io/)
