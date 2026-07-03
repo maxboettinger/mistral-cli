@@ -39,8 +39,10 @@ Strict layering, dependencies point inward. The request flow:
 | Module | Role |
 | --- | --- |
 | `cli/main.py` | Root `click.group`; builds `AppContext` (config path, debug, consoles). |
-| `cli/ocr.py`, `cli/transcribe.py`, `cli/config.py` | Click commands. |
-| `cli/common.py` | Shared secret handling, error reporting, redaction, API-key resolution. |
+| `cli/ocr.py`, `cli/transcribe.py`, `cli/config.py`, `cli/agent.py` | Click commands (`agent` prints the packaged guide/schema). |
+| `cli/runner.py` | Shared batch loop: per-source errors, lazy runtime, save, Markdown/NDJSON stdout, `--quiet`/`--no-save`/`--dry-run`, exit codes. |
+| `cli/common.py` | Shared secret handling, error reporting, redaction. |
+| `schema.py` | JSON Schema for the `--json` NDJSON records (`mistral agent --schema`). |
 | `models.py` | SDK-independent request/result types + `build_*_request` validation. |
 | `services/` | `OcrService` / `TranscriptionService` behind `*Gateway` protocols. |
 | `mistral_client.py` | `MistralGateway`: the only place that touches `mistralai`. |
@@ -63,7 +65,7 @@ Any string reaching the terminal or disk must pass through
 (`sanitize_terminal_text`) *and* redacts every known secret variant. Results are
 run through `redact_result()` before formatting/saving. Secrets are collected
 progressively — `candidate_secrets()` (env + stored key) before setup,
-`resolve_api_key()` then `extend_secrets()` once the real key is known — so
+then `extend_secrets()` once the real key is resolved in the runner — so
 error output is always redacted even on early failures. The CLI **never** accepts
 an API key as an argument (prompt, `--stdin`, or `MISTRAL_API_KEY` only).
 `translate_exception()` maps external/SDK errors to safe `MistralCliError`
@@ -71,19 +73,31 @@ messages so untrusted exception text never leaks; raw detail appears only under
 `--debug`, still redacted.
 
 **2. stdout vs stderr discipline.** stdout carries *only* pipe-friendly results
-(rendered Markdown, and only with `--stdout`). All progress, saved-path notices,
-errors, and the run summary go to stderr. Both go through `ConsoleBundle`
-(`write_stdout`/`write_stderr`), which sanitizes on the way out.
+(rendered Markdown with `--stdout`, or NDJSON records with `--json` — mutually
+exclusive). All progress, saved-path notices, errors, and the run summary go to
+stderr (`--quiet` suppresses the non-error lines). Both go through
+`ConsoleBundle` (`write_stdout`/`write_stderr`), which sanitizes on the way out.
+NDJSON is serialized with `ensure_ascii=True` (`serialize_ndjson`), so
+sanitization is a no-op on it and control-character injection is impossible.
+
+**Stable machine contract.** The NDJSON record shapes (record builders in
+`formatters.py` + `schema.py`), the error codes (`errors.error_code`), and the
+exit codes (`errors.EXIT_FAILURE`/`EXIT_USAGE`/`EXIT_SETUP` = 1/2/3, 0 =
+success) are a public contract documented by `mistral agent`; breaking changes
+require bumping the record `schema_version`. Keep `src/mistral_cli/data/agent_guide.md`
+in sync when the CLI surface changes.
 
 ## Command conventions
 
-Batch commands loop over sources with a per-source `try/except`: a failure
-increments `failures`, is reported, and does **not** stop later sources. Any
-failure at the end raises `click.exceptions.Exit(1)`. Options that map to `None`
-when "off" (e.g. `--table-format inline`, `--confidence none`) are normalized in
-the command before building the request. New request options are added to the
-`build_*_request` validators in `models.py` and echoed into the service's
-`request_metadata` so they land in the saved JSON envelope.
+The command modules normalize options (`--table-format inline` /
+`--confidence none` → `None`) and delegate the loop to `run_batch()`
+(`cli/runner.py`), which owns per-source `try/except` (one failure never stops
+later sources), lazy API-key/runtime setup, dry-run short-circuiting, stdout
+emission, and the exit-code decision (`Exit(1)` on any source failure,
+`Exit(3)` on setup failure). New request options are added to the
+`build_*_request` validators in `models.py` and echoed into
+`*_request_metadata()` so they land in the saved JSON envelope, the NDJSON
+records, and `--dry-run` output.
 
 ## Notes
 

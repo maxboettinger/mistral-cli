@@ -26,6 +26,9 @@ mistral transcribe interview.mp3
   successful results.
 - **Pipe-clean output** — Markdown goes to stdout on request; progress, paths,
   and errors stay on stderr.
+- **Agent-ready** — `--json` streams stable NDJSON records for machine
+  consumption, exit codes are documented and stable, and `mistral agent`
+  prints a compact usage guide and output schema for LLM agents.
 - **Secure by default** — API keys are never passed as CLI arguments, are
   redacted from all output (including tracebacks), and are stored with
   restrictive file permissions.
@@ -158,6 +161,10 @@ Both commands share these output options:
 | `--format md\|json\|both` | Which formats to save. Default: `both`. |
 | `--output-dir DIRECTORY` | Override the default result directory. |
 | `--stdout` | Also write rendered Markdown to standard output. |
+| `--json` | Write NDJSON result records to standard output (one per source; mutually exclusive with `--stdout`). |
+| `--quiet` | Suppress progress and summary lines on stderr (errors still shown). |
+| `--no-save` | Skip result files entirely (requires `--json` or `--stdout`). |
+| `--dry-run` | Validate sources and options without calling the API — no key needed. |
 
 **Where results go.** By default, into per-command directories, named with a UTC
 timestamp followed by the original source filename:
@@ -184,6 +191,36 @@ A failure for one source does not discard successful results or stop later
 sources. The final summary reports successes and failures, and any failure
 produces a nonzero exit status. With `--stdout` and multiple successes, Markdown
 documents are separated by a horizontal rule.
+
+---
+
+## Machine-readable output & agents
+
+With `--json`, each command streams one NDJSON record per source to stdout —
+`status: "ok"` records carry the full result envelope and saved paths, failures
+appear in-band as `status: "error"` records with stable error codes
+(`input_error`, `config_error`, `api_error`, `persistence_error`,
+`unexpected_error`), and every completed run ends with a `status: "summary"`
+record. Output is ASCII-encoded, so it is immune to terminal-control injection
+and always parses:
+
+```console
+mistral ocr --json --quiet report.pdf \
+  | jq -r 'select(.status=="ok") | .envelope.response.pages[].markdown'
+```
+
+Exit codes are part of the stable contract:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Every source succeeded (or validated, under `--dry-run`). |
+| `1` | At least one source failed. |
+| `2` | Usage error (bad flags or flag combination). |
+| `3` | Setup failure (missing API key, unreadable config). |
+
+For LLM agents and other tooling, `mistral agent` prints a compact usage guide
+and `mistral agent --schema` prints the JSON Schema for the NDJSON records.
+Use `--dry-run --json` to validate a batch without an API key or network calls.
 
 ---
 

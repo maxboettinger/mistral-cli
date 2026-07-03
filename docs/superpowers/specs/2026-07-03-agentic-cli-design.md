@@ -66,7 +66,8 @@ Dry run (per source, see §4):
  "request":{...request metadata, secrets/paths stripped...}}
 ```
 
-Run summary (always the final record):
+Run summary (the final record of every completed run; a setup failure aborts
+the run after emitting only its error record):
 
 ```json
 {"schema_version":1,"status":"summary","succeeded":2,"failed":1}
