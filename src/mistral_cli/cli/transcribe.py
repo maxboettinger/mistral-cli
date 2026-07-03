@@ -1,25 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import click
 
-from mistral_cli.cli.common import (
-    candidate_secrets,
-    redact_result,
-    report_error,
-    resolve_api_key,
-    safe_terminal_text,
-)
+from mistral_cli.cli.runner import BatchPlan, OutputOptions, run_batch
 from mistral_cli.formatters import format_transcription_markdown
 from mistral_cli.mistral_client import MistralGateway
 from mistral_cli.models import (
     Operation,
     OutputFormat,
     TimestampGranularity,
+    TranscriptionRequest,
     build_transcription_request,
+    transcription_request_metadata,
 )
 from mistral_cli.services.transcription import (
     TranscriptionGateway,
@@ -31,15 +26,6 @@ from mistral_cli.storage import ResultStore
 if TYPE_CHECKING:
     from mistral_cli.cli.main import AppContext
 
-_STDOUT_SEPARATOR = "\n\n---\n\n"
-
-
-@dataclass(frozen=True, slots=True)
-class _Runtime:
-    secrets: tuple[str, ...]
-    service: TranscriptionService
-    store: ResultStore
-
 
 def create_gateway(api_key: str) -> TranscriptionGateway:
     """Create the production transcription gateway."""
@@ -49,43 +35,6 @@ def create_gateway(api_key: str) -> TranscriptionGateway:
 def create_result_store() -> ResultStore:
     """Create the production result store."""
     return ResultStore()
-
-
-def _report_error(
-    context: AppContext,
-    error: Exception,
-    *,
-    secrets: tuple[str, ...],
-    source: str | None = None,
-) -> None:
-    report_error(
-        context,
-        error,
-        secrets=secrets,
-        setup_debug_context="setting up transcription command",
-        source_debug_prefix="Transcription source",
-        source=source,
-    )
-
-
-def _create_runtime(
-    context: AppContext,
-    secrets: tuple[str, ...],
-) -> _Runtime:
-    api_key, runtime_secrets = resolve_api_key(
-        context,
-        secrets,
-        setup_debug_context="setting up transcription command",
-    )
-    try:
-        return _Runtime(
-            secrets=runtime_secrets,
-            service=TranscriptionService(create_gateway(api_key)),
-            store=create_result_store(),
-        )
-    except Exception as error:
-        _report_error(context, error, secrets=runtime_secrets)
-        raise click.exceptions.Exit(1) from error
 
 
 @click.command()
@@ -163,85 +112,41 @@ def transcribe(
     write_stdout: bool,
 ) -> None:
     """Transcribe local audio files or HTTP(S) URLs into text."""
-    successes = 0
-    failures = 0
-    wrote_document = False
-    runtime: _Runtime | None = None
-    potential_secrets: tuple[str, ...] | None = None
-    selected_timestamps = cast(tuple[TimestampGranularity, ...], timestamps)
-    selected_output_format = OutputFormat(output_format)
+    selected_timestamps = cast("tuple[TimestampGranularity, ...]", timestamps)
 
-    for source_value in sources:
-        try:
-            source = resolve_source(source_value, Operation.TRANSCRIPTION)
-            request = build_transcription_request(
-                source=source,
-                model=model,
-                language=language,
-                temperature=temperature,
-                diarize=diarize,
-                context_bias=context_bias,
-                timestamps=selected_timestamps,
-                timeout_seconds=timeout,
-            )
-        except Exception as error:
-            if potential_secrets is None:
-                potential_secrets = candidate_secrets(context)
-            secrets = potential_secrets if runtime is None else runtime.secrets
-            _report_error(
-                context,
-                error,
-                secrets=secrets,
-                source=source_value,
-            )
-            failures += 1
-            continue
+    def build_request(source_value: str) -> TranscriptionRequest:
+        return build_transcription_request(
+            source=resolve_source(source_value, Operation.TRANSCRIPTION),
+            model=model,
+            language=language,
+            temperature=temperature,
+            diarize=diarize,
+            context_bias=context_bias,
+            timestamps=selected_timestamps,
+            timeout_seconds=timeout,
+        )
 
-        if potential_secrets is None:
-            potential_secrets = candidate_secrets(context)
-        if runtime is None:
-            runtime = _create_runtime(context, potential_secrets)
-        secrets = runtime.secrets
-        safe_source_value = safe_terminal_text(source_value, secrets)
-        try:
-            context.consoles.write_stderr(f"Processing: {safe_source_value}\n")
-            result = runtime.service.run(request)
-            safe_result = redact_result(result, secrets)
-            markdown = safe_terminal_text(
-                format_transcription_markdown(safe_result),
-                secrets,
-            )
-            saved = runtime.store.save(
-                safe_result,
-                markdown,
-                selected_output_format,
-                output_dir=output_dir,
-            )
-        except Exception as error:
-            _report_error(
-                context,
-                error,
-                secrets=secrets,
-                source=source_value,
-            )
-            failures += 1
-            continue
-
-        if saved.markdown is not None:
-            safe_path = safe_terminal_text(str(saved.markdown), secrets)
-            context.consoles.write_stderr(f"Saved: {safe_path}\n")
-        if saved.json is not None:
-            safe_path = safe_terminal_text(str(saved.json), secrets)
-            context.consoles.write_stderr(f"Saved: {safe_path}\n")
-        if write_stdout:
-            if wrote_document:
-                context.consoles.write_stdout(_STDOUT_SEPARATOR)
-            context.consoles.write_stdout(markdown)
-            wrote_document = True
-        successes += 1
-
-    context.consoles.write_stderr(
-        f"Summary: {successes} succeeded, {failures} failed.\n"
+    run_batch(
+        context,
+        sources,
+        BatchPlan(
+            setup_debug_context="setting up transcription command",
+            source_debug_prefix="Transcription source",
+            build_request=build_request,
+            request_metadata=transcription_request_metadata,
+            create_service=lambda api_key: TranscriptionService(
+                create_gateway(api_key)
+            ),
+            create_store=lambda: create_result_store(),
+            format_markdown=format_transcription_markdown,
+        ),
+        OutputOptions(
+            output_format=OutputFormat(output_format),
+            output_dir=output_dir,
+            write_markdown_stdout=write_stdout,
+            write_json_stdout=False,
+            quiet=False,
+            no_save=False,
+            dry_run=False,
+        ),
     )
-    if failures:
-        raise click.exceptions.Exit(1)

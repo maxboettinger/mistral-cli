@@ -564,7 +564,7 @@ def test_missing_api_key_is_clean_setup_error(
         env={"MISTRAL_API_KEY": ""},
     )
 
-    assert result.exit_code != 0
+    assert result.exit_code == 3
     assert "No API key configured" in result.stderr
     assert "mistral config set api-key" in result.stderr
     assert "Traceback" not in result.stderr
@@ -594,7 +594,7 @@ def test_malformed_config_is_clean_setup_error(
         env={"MISTRAL_API_KEY": ""},
     )
 
-    assert result.exit_code != 0
+    assert result.exit_code == 3
     assert "Could not parse configuration" in result.stderr
     assert "Traceback" not in result.stderr
 
