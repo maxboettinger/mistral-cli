@@ -49,6 +49,18 @@ mistral transcribe interview.mp3
 uv tool install .
 ```
 
+To upgrade an existing install after pulling changes, force a rebuild —
+`uv tool install .` alone may reuse a previously built wheel when the
+version number hasn't changed:
+
+```console
+uv tool install --reinstall --force .
+```
+
+> **Note:** never `uv tool install mistral` — the PyPI package named
+> `mistral` is OpenStack Mistral (a workflow service), not this CLI.
+> Install from this repository (or a checkout path) as shown above.
+
 **2. Store your API key** (hidden, confirmed prompt):
 
 ```console
