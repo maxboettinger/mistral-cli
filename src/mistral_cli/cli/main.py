@@ -6,6 +6,7 @@ import click
 from mistral_cli import __version__
 from mistral_cli.cli.config import config
 from mistral_cli.cli.ocr import ocr
+from mistral_cli.cli.transcribe import transcribe
 from mistral_cli.console import ConsoleBundle, create_console_bundle
 
 DEFAULT_CONFIG_PATH = Path("~/.mistral/config.toml").expanduser()
@@ -39,10 +40,6 @@ def cli(ctx: click.Context, debug: bool, config_path: Path) -> None:
     )
 
 
-@cli.command()
-def transcribe() -> None:
-    """Transcribe audio into text."""
-
-
 cli.add_command(config)
 cli.add_command(ocr)
+cli.add_command(transcribe)
