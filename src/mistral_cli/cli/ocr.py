@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,7 +36,7 @@ _STDOUT_SEPARATOR = "\n\n---\n\n"
 
 @dataclass(frozen=True, slots=True)
 class _Runtime:
-    api_key: str
+    secrets: tuple[str, ...]
     service: OcrService
     store: ResultStore
 
@@ -64,93 +65,131 @@ def _nonnegative_integer(
     return value
 
 
-def _setup_error(
+def _report_error(
     context: AppContext,
     error: Exception,
     *,
-    api_key: str | None = None,
+    secrets: tuple[str, ...],
+    source: str | None = None,
 ) -> None:
     translated = translate_exception(error)
-    secrets = () if api_key is None else (api_key,)
-    context.consoles.write_stderr(
-        _safe_terminal_text(f"Setup error: {translated}\n", secrets)
+    line = (
+        f"Setup error: {translated}\n"
+        if source is None
+        else f"{source}: {translated}\n"
     )
+    debug_context = (
+        "setting up OCR command" if source is None else f"OCR source: {source}"
+    )
+    context.consoles.write_stderr(_safe_terminal_text(line, secrets))
     if context.debug:
         context.consoles.print_debug_exception(
             error,
             secrets=secrets,
-            context="setting up OCR command",
+            context=debug_context,
         )
 
 
 def _safe_terminal_text(text: str, secrets: tuple[str, ...]) -> str:
-    return redact(sanitize_terminal_text(text), secrets)
+    return sanitize_terminal_text(redact(text, secrets))
 
 
-def _redact_json_value(value: JSONValue, api_key: str) -> JSONValue:
+def _redaction_secrets(context: AppContext) -> tuple[str, ...]:
+    secrets: list[str] = []
+    environment_key = os.environ.get("MISTRAL_API_KEY")
+    if environment_key is not None and environment_key.strip():
+        secrets.append(environment_key)
+
+    try:
+        configured_key = ConfigStore(context.config_path, environ={}).load().api_key
+    except ConfigError:
+        configured_key = None
+    if configured_key is not None:
+        secrets.append(configured_key)
+    return tuple(dict.fromkeys(secrets))
+
+
+def _with_secret(secrets: tuple[str, ...], secret: str) -> tuple[str, ...]:
+    if secret in secrets:
+        return secrets
+    return (*secrets, secret)
+
+
+def _redact_json_value(
+    value: JSONValue,
+    secrets: tuple[str, ...],
+) -> JSONValue:
     if isinstance(value, str):
-        return redact(value, (api_key,))
+        return redact(value, secrets)
     if isinstance(value, list):
-        return [_redact_json_value(item, api_key) for item in value]
+        return [_redact_json_value(item, secrets) for item in value]
     if isinstance(value, Mapping):
-        return _redact_json_mapping(cast(JSONMapping, value), api_key)
+        return _redact_json_mapping(cast(JSONMapping, value), secrets)
     return value
 
 
 def _redact_json_mapping(
     mapping: JSONMapping,
-    api_key: str,
+    secrets: tuple[str, ...],
 ) -> dict[str, JSONValue]:
     redacted_mapping: dict[str, JSONValue] = {}
     for key, value in mapping.items():
-        safe_key = redact(key, (api_key,))
+        safe_key = redact(key, secrets)
         unique_key = safe_key
         suffix = 1
         while unique_key in redacted_mapping:
             unique_key = f"{safe_key}#{suffix}"
             suffix += 1
-        redacted_mapping[unique_key] = _redact_json_value(value, api_key)
+        redacted_mapping[unique_key] = _redact_json_value(value, secrets)
     return redacted_mapping
 
 
-def _redact_source(source: InputSource, api_key: str) -> InputSource:
-    safe_path = (
-        None if source.path is None else Path(redact(str(source.path), (api_key,)))
-    )
+def _redact_source(
+    source: InputSource,
+    secrets: tuple[str, ...],
+) -> InputSource:
+    safe_path = None if source.path is None else Path(redact(str(source.path), secrets))
     return InputSource(
         kind=source.kind,
-        value=redact(source.value, (api_key,)),
-        filename=redact(source.filename, (api_key,)),
+        value=redact(source.value, secrets),
+        filename=redact(source.filename, secrets),
         path=safe_path,
         ocr_kind=source.ocr_kind,
     )
 
 
-def _redact_result(result: ApiResult, api_key: str) -> ApiResult:
+def _redact_result(
+    result: ApiResult,
+    secrets: tuple[str, ...],
+) -> ApiResult:
     return ApiResult(
         operation=result.operation,
-        source=_redact_source(result.source, api_key),
-        request_metadata=_redact_json_mapping(result.request_metadata, api_key),
-        response=_redact_json_mapping(result.response, api_key),
+        source=_redact_source(result.source, secrets),
+        request_metadata=_redact_json_mapping(result.request_metadata, secrets),
+        response=_redact_json_mapping(result.response, secrets),
         created_at=result.created_at,
     )
 
 
-def _create_runtime(context: AppContext) -> _Runtime:
+def _create_runtime(
+    context: AppContext,
+    secrets: tuple[str, ...],
+) -> _Runtime:
     try:
         api_key = ConfigStore(context.config_path).resolve_api_key()
     except ConfigError as error:
-        _setup_error(context, error)
+        _report_error(context, error, secrets=secrets)
         raise click.exceptions.Exit(1) from error
 
+    runtime_secrets = _with_secret(secrets, api_key)
     try:
         return _Runtime(
-            api_key=api_key,
+            secrets=runtime_secrets,
             service=OcrService(create_gateway(api_key)),
             store=create_result_store(),
         )
     except Exception as error:
-        _setup_error(context, error, api_key=api_key)
+        _report_error(context, error, secrets=runtime_secrets)
         raise click.exceptions.Exit(1) from error
 
 
@@ -262,6 +301,7 @@ def ocr(
     failures = 0
     wrote_document = False
     runtime: _Runtime | None = None
+    potential_secrets: tuple[str, ...] | None = None
     selected_table_format = (
         None if table_format == "inline" else cast(TableFormat, table_format)
     )
@@ -286,33 +326,31 @@ def ocr(
                 timeout_seconds=timeout,
             )
         except Exception as error:
-            translated = translate_exception(error)
-            secrets = () if runtime is None else (runtime.api_key,)
-            error_line = _safe_terminal_text(
-                f"{source_value}: {translated}\n",
-                secrets,
+            if potential_secrets is None:
+                potential_secrets = _redaction_secrets(context)
+            secrets = potential_secrets if runtime is None else runtime.secrets
+            _report_error(
+                context,
+                error,
+                secrets=secrets,
+                source=source_value,
             )
-            context.consoles.write_stderr(error_line)
-            if context.debug:
-                context.consoles.print_debug_exception(
-                    error,
-                    secrets=secrets,
-                    context=f"OCR source: {source_value}",
-                )
             failures += 1
             continue
 
+        if potential_secrets is None:
+            potential_secrets = _redaction_secrets(context)
         if runtime is None:
-            runtime = _create_runtime(context)
-        api_key = runtime.api_key
-        safe_source_value = _safe_terminal_text(source_value, (api_key,))
+            runtime = _create_runtime(context, potential_secrets)
+        secrets = runtime.secrets
+        safe_source_value = _safe_terminal_text(source_value, secrets)
         try:
             context.consoles.write_stderr(f"Processing: {safe_source_value}\n")
             result = runtime.service.run(request)
-            safe_result = _redact_result(result, api_key)
+            safe_result = _redact_result(result, secrets)
             markdown = _safe_terminal_text(
                 format_ocr_markdown(safe_result),
-                (api_key,),
+                secrets,
             )
             saved = runtime.store.save(
                 safe_result,
@@ -321,26 +359,20 @@ def ocr(
                 output_dir=output_dir,
             )
         except Exception as error:
-            translated = translate_exception(error)
-            error_line = _safe_terminal_text(
-                f"{source_value}: {translated}\n",
-                (api_key,),
+            _report_error(
+                context,
+                error,
+                secrets=secrets,
+                source=source_value,
             )
-            context.consoles.write_stderr(error_line)
-            if context.debug:
-                context.consoles.print_debug_exception(
-                    error,
-                    secrets=(api_key,),
-                    context=f"OCR source: {source_value}",
-                )
             failures += 1
             continue
 
         if saved.markdown is not None:
-            safe_path = _safe_terminal_text(str(saved.markdown), (api_key,))
+            safe_path = _safe_terminal_text(str(saved.markdown), secrets)
             context.consoles.write_stderr(f"Saved: {safe_path}\n")
         if saved.json is not None:
-            safe_path = _safe_terminal_text(str(saved.json), (api_key,))
+            safe_path = _safe_terminal_text(str(saved.json), secrets)
             context.consoles.write_stderr(f"Saved: {safe_path}\n")
         if write_stdout:
             if wrote_document:

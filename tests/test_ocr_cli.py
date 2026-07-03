@@ -433,6 +433,118 @@ def test_invalid_input_is_reported_before_missing_api_key_or_runtime_creation(
     assert gateway_factory_called is False
 
 
+@pytest.mark.parametrize("debug", [False, True])
+def test_pre_runtime_invalid_source_redacts_environment_api_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    debug: bool,
+) -> None:
+    secret = "environment-invalid-source-secret"
+    source = tmp_path / f"missing-{secret}.pdf"
+
+    def fail_gateway_factory(api_key: str) -> FakeGateway:
+        pytest.fail(f"unexpected runtime creation for {len(api_key)} byte key")
+
+    monkeypatch.setattr(ocr_cli, "create_gateway", fail_gateway_factory)
+    arguments = ["--debug"] if debug else []
+    result = CliRunner().invoke(
+        cli,
+        [
+            *arguments,
+            "--config",
+            str(tmp_path / "missing-config.toml"),
+            "ocr",
+            str(source),
+        ],
+        env={"MISTRAL_API_KEY": secret},
+    )
+
+    assert result.exit_code == 1
+    assert "does not exist" in result.stderr
+    assert secret not in result.stderr
+    assert "[REDACTED]" in result.stderr
+    assert ("Traceback" in result.stderr) is debug
+
+
+@pytest.mark.parametrize("debug", [False, True])
+def test_pre_runtime_invalid_source_redacts_configured_api_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    debug: bool,
+) -> None:
+    secret = "configured-invalid-source-secret"
+    config_path = tmp_path / "config.toml"
+    ConfigStore(config_path).set("api-key", secret)
+    source = tmp_path / f"missing-{secret}.pdf"
+
+    def fail_gateway_factory(api_key: str) -> FakeGateway:
+        pytest.fail(f"unexpected runtime creation for {len(api_key)} byte key")
+
+    monkeypatch.setattr(ocr_cli, "create_gateway", fail_gateway_factory)
+    arguments = ["--debug"] if debug else []
+    result = CliRunner().invoke(
+        cli,
+        [
+            *arguments,
+            "--config",
+            str(config_path),
+            "ocr",
+            str(source),
+        ],
+        env={"MISTRAL_API_KEY": ""},
+    )
+
+    assert result.exit_code == 1
+    assert "does not exist" in result.stderr
+    assert secret not in result.stderr
+    assert "[REDACTED]" in result.stderr
+    assert ("Traceback" in result.stderr) is debug
+
+
+def test_redaction_precedes_terminal_sanitization_for_control_character_key(
+    tmp_path: Path,
+) -> None:
+    secret = "abc\rdef"
+    normalized_secret = "abcdef"
+    source = tmp_path / f"missing-{secret}.pdf"
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--debug",
+            "--config",
+            str(tmp_path / "missing-config.toml"),
+            "ocr",
+            str(source),
+        ],
+        env={"MISTRAL_API_KEY": secret},
+    )
+
+    assert result.exit_code == 1
+    assert "does not exist" in result.stderr
+    assert secret not in result.stderr
+    assert normalized_secret not in result.stderr
+    assert "[REDACTED]" in result.stderr
+
+
+def test_malformed_config_does_not_mask_pre_runtime_input_error(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "bad.toml"
+    config_path.write_text("api_key = [", encoding="utf-8")
+    source = tmp_path / "missing.pdf"
+
+    result = CliRunner().invoke(
+        cli,
+        ["--config", str(config_path), "ocr", str(source)],
+        env={"MISTRAL_API_KEY": ""},
+    )
+
+    assert result.exit_code == 1
+    assert "does not exist" in result.stderr
+    assert "Could not parse configuration" not in result.stderr
+
+
 def test_missing_api_key_is_clean_setup_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
