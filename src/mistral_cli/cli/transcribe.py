@@ -1,23 +1,21 @@
 from __future__ import annotations
 
-import os
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import click
 
-from mistral_cli.config import ConfigStore
-from mistral_cli.console import sanitize_terminal_text
-from mistral_cli.errors import ConfigError, redact, translate_exception
+from mistral_cli.cli.common import (
+    candidate_secrets,
+    redact_result,
+    report_error,
+    resolve_api_key,
+    safe_terminal_text,
+)
 from mistral_cli.formatters import format_transcription_markdown
 from mistral_cli.mistral_client import MistralGateway
 from mistral_cli.models import (
-    ApiResult,
-    InputSource,
-    JSONMapping,
-    JSONValue,
     Operation,
     OutputFormat,
     TimestampGranularity,
@@ -53,87 +51,6 @@ def create_result_store() -> ResultStore:
     return ResultStore()
 
 
-def _safe_terminal_text(text: str, secrets: tuple[str, ...]) -> str:
-    return sanitize_terminal_text(redact(text, secrets))
-
-
-def _redaction_secrets(context: AppContext) -> tuple[str, ...]:
-    secrets: list[str] = []
-    environment_key = os.environ.get("MISTRAL_API_KEY")
-    if environment_key is not None and environment_key.strip():
-        secrets.append(environment_key)
-
-    try:
-        configured_key = ConfigStore(context.config_path, environ={}).load().api_key
-    except ConfigError:
-        configured_key = None
-    if configured_key is not None:
-        secrets.append(configured_key)
-    return tuple(dict.fromkeys(secrets))
-
-
-def _with_secret(secrets: tuple[str, ...], secret: str) -> tuple[str, ...]:
-    if secret in secrets:
-        return secrets
-    return (*secrets, secret)
-
-
-def _redact_json_value(
-    value: JSONValue,
-    secrets: tuple[str, ...],
-) -> JSONValue:
-    if isinstance(value, str):
-        return redact(value, secrets)
-    if isinstance(value, list):
-        return [_redact_json_value(item, secrets) for item in value]
-    if isinstance(value, Mapping):
-        return _redact_json_mapping(cast(JSONMapping, value), secrets)
-    return value
-
-
-def _redact_json_mapping(
-    mapping: JSONMapping,
-    secrets: tuple[str, ...],
-) -> dict[str, JSONValue]:
-    redacted_mapping: dict[str, JSONValue] = {}
-    for key, value in mapping.items():
-        safe_key = redact(key, secrets)
-        unique_key = safe_key
-        suffix = 1
-        while unique_key in redacted_mapping:
-            unique_key = f"{safe_key}#{suffix}"
-            suffix += 1
-        redacted_mapping[unique_key] = _redact_json_value(value, secrets)
-    return redacted_mapping
-
-
-def _redact_source(
-    source: InputSource,
-    secrets: tuple[str, ...],
-) -> InputSource:
-    safe_path = None if source.path is None else Path(redact(str(source.path), secrets))
-    return InputSource(
-        kind=source.kind,
-        value=redact(source.value, secrets),
-        filename=redact(source.filename, secrets),
-        path=safe_path,
-        ocr_kind=source.ocr_kind,
-    )
-
-
-def _redact_result(
-    result: ApiResult,
-    secrets: tuple[str, ...],
-) -> ApiResult:
-    return ApiResult(
-        operation=result.operation,
-        source=_redact_source(result.source, secrets),
-        request_metadata=_redact_json_mapping(result.request_metadata, secrets),
-        response=_redact_json_mapping(result.response, secrets),
-        created_at=result.created_at,
-    )
-
-
 def _report_error(
     context: AppContext,
     error: Exception,
@@ -141,37 +58,25 @@ def _report_error(
     secrets: tuple[str, ...],
     source: str | None = None,
 ) -> None:
-    translated = translate_exception(error)
-    line = (
-        f"Setup error: {translated}\n"
-        if source is None
-        else f"{source}: {translated}\n"
+    report_error(
+        context,
+        error,
+        secrets=secrets,
+        setup_debug_context="setting up transcription command",
+        source_debug_prefix="Transcription source",
+        source=source,
     )
-    debug_context = (
-        "setting up transcription command"
-        if source is None
-        else f"Transcription source: {source}"
-    )
-    context.consoles.write_stderr(_safe_terminal_text(line, secrets))
-    if context.debug:
-        context.consoles.print_debug_exception(
-            error,
-            secrets=secrets,
-            context=debug_context,
-        )
 
 
 def _create_runtime(
     context: AppContext,
     secrets: tuple[str, ...],
 ) -> _Runtime:
-    try:
-        api_key = ConfigStore(context.config_path).resolve_api_key()
-    except ConfigError as error:
-        _report_error(context, error, secrets=secrets)
-        raise click.exceptions.Exit(1) from error
-
-    runtime_secrets = _with_secret(secrets, api_key)
+    api_key, runtime_secrets = resolve_api_key(
+        context,
+        secrets,
+        setup_debug_context="setting up transcription command",
+    )
     try:
         return _Runtime(
             secrets=runtime_secrets,
@@ -281,7 +186,7 @@ def transcribe(
             )
         except Exception as error:
             if potential_secrets is None:
-                potential_secrets = _redaction_secrets(context)
+                potential_secrets = candidate_secrets(context)
             secrets = potential_secrets if runtime is None else runtime.secrets
             _report_error(
                 context,
@@ -293,16 +198,16 @@ def transcribe(
             continue
 
         if potential_secrets is None:
-            potential_secrets = _redaction_secrets(context)
+            potential_secrets = candidate_secrets(context)
         if runtime is None:
             runtime = _create_runtime(context, potential_secrets)
         secrets = runtime.secrets
-        safe_source_value = _safe_terminal_text(source_value, secrets)
+        safe_source_value = safe_terminal_text(source_value, secrets)
         try:
             context.consoles.write_stderr(f"Processing: {safe_source_value}\n")
             result = runtime.service.run(request)
-            safe_result = _redact_result(result, secrets)
-            markdown = _safe_terminal_text(
+            safe_result = redact_result(result, secrets)
+            markdown = safe_terminal_text(
                 format_transcription_markdown(safe_result),
                 secrets,
             )
@@ -323,10 +228,10 @@ def transcribe(
             continue
 
         if saved.markdown is not None:
-            safe_path = _safe_terminal_text(str(saved.markdown), secrets)
+            safe_path = safe_terminal_text(str(saved.markdown), secrets)
             context.consoles.write_stderr(f"Saved: {safe_path}\n")
         if saved.json is not None:
-            safe_path = _safe_terminal_text(str(saved.json), secrets)
+            safe_path = safe_terminal_text(str(saved.json), secrets)
             context.consoles.write_stderr(f"Saved: {safe_path}\n")
         if write_stdout:
             if wrote_document:
