@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import cast
 
@@ -11,7 +11,9 @@ from mistral_cli.formatters import (
     build_dry_run_record,
     build_envelope,
     build_error_record,
+    build_existing_result,
     build_ok_record,
+    build_skipped_record,
     build_summary_record,
     format_ocr_markdown,
     format_timestamp,
@@ -427,9 +429,70 @@ def test_build_dry_run_record_strips_sensitive_request_keys() -> None:
 
 
 def test_build_summary_record_shape() -> None:
-    assert build_summary_record(succeeded=2, failed=1) == {
+    assert build_summary_record(succeeded=2, failed=1, skipped=3) == {
         "schema_version": RECORD_SCHEMA_VERSION,
         "status": "summary",
         "succeeded": 2,
         "failed": 1,
+        "skipped": 3,
+    }
+
+
+def test_build_existing_result_shape() -> None:
+    saved_at = datetime(2026, 7, 3, 12, 13, 14, tzinfo=UTC)
+    record = build_existing_result(
+        saved_at=saved_at,
+        markdown="/tmp/a.md",
+        json_path="/tmp/a.json",
+        model="mistral-ocr-latest",
+    )
+    assert record == {
+        "saved_at": "2026-07-03T12:13:14Z",
+        "markdown": "/tmp/a.md",
+        "json": "/tmp/a.json",
+        "model": "mistral-ocr-latest",
+    }
+
+
+def test_build_skipped_record_shape() -> None:
+    existing = build_existing_result(
+        saved_at=datetime(2026, 7, 3, tzinfo=UTC),
+        markdown="/tmp/a.md",
+        json_path=None,
+        model="mistral-ocr-latest",
+    )
+    record = build_skipped_record(source="doc.pdf", existing=existing)
+    assert record == {
+        "schema_version": RECORD_SCHEMA_VERSION,
+        "status": "skipped",
+        "source": "doc.pdf",
+        "reason": "duplicate",
+        "existing": existing,
+    }
+
+
+def test_build_dry_run_record_includes_duplicate_only_when_given() -> None:
+    without_duplicate = build_dry_run_record(
+        source="doc.pdf",
+        request_metadata={"model": "mistral-ocr-latest"},
+    )
+    assert "duplicate" not in without_duplicate
+
+    duplicate = build_existing_result(
+        saved_at=datetime(2026, 7, 3, tzinfo=UTC),
+        markdown="/tmp/a.md",
+        json_path=None,
+        model="mistral-ocr-latest",
+    )
+    with_duplicate = build_dry_run_record(
+        source="doc.pdf",
+        request_metadata={"model": "mistral-ocr-latest"},
+        duplicate=duplicate,
+    )
+    assert with_duplicate == {
+        "schema_version": RECORD_SCHEMA_VERSION,
+        "status": "dry_run",
+        "source": "doc.pdf",
+        "request": {"model": "mistral-ocr-latest"},
+        "duplicate": duplicate,
     }

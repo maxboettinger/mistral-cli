@@ -183,6 +183,22 @@ def build_envelope(result: ApiResult, cli_version: str) -> dict[str, JSONValue]:
     }
 
 
+def build_existing_result(
+    *,
+    saved_at: datetime,
+    markdown: str | None,
+    json_path: str | None,
+    model: str | None,
+) -> dict[str, JSONValue]:
+    """Build the saved-result payload shared by skipped and dry-run records."""
+    return {
+        "saved_at": _canonical_datetime(saved_at),
+        "markdown": markdown,
+        "json": json_path,
+        "model": model,
+    }
+
+
 def build_ok_record(
     *,
     source: str,
@@ -220,23 +236,45 @@ def build_dry_run_record(
     *,
     source: str,
     request_metadata: JSONMapping,
+    duplicate: dict[str, JSONValue] | None = None,
 ) -> dict[str, JSONValue]:
     """Build the stdout record for a validated source under --dry-run."""
-    return {
+    record: dict[str, JSONValue] = {
         "schema_version": RECORD_SCHEMA_VERSION,
         "status": "dry_run",
         "source": source,
         "request": _plain_json(request_metadata, omit_sensitive=True),
     }
+    if duplicate is not None:
+        record["duplicate"] = duplicate
+    return record
 
 
-def build_summary_record(*, succeeded: int, failed: int) -> dict[str, JSONValue]:
+def build_skipped_record(
+    *,
+    source: str,
+    existing: dict[str, JSONValue],
+) -> dict[str, JSONValue]:
+    """Build the stdout record for a source skipped as a duplicate."""
+    return {
+        "schema_version": RECORD_SCHEMA_VERSION,
+        "status": "skipped",
+        "source": source,
+        "reason": "duplicate",
+        "existing": existing,
+    }
+
+
+def build_summary_record(
+    *, succeeded: int, failed: int, skipped: int
+) -> dict[str, JSONValue]:
     """Build the final stdout record of a completed run."""
     return {
         "schema_version": RECORD_SCHEMA_VERSION,
         "status": "summary",
         "succeeded": succeeded,
         "failed": failed,
+        "skipped": skipped,
     }
 
 

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol, cast
+
+import click
 
 from mistral_cli.config import ConfigStore
 from mistral_cli.console import sanitize_terminal_text
@@ -14,6 +17,21 @@ from mistral_cli.errors import (
     translate_exception,
 )
 from mistral_cli.models import ApiResult, InputSource, JSONMapping, JSONValue
+
+
+def positive_days(
+    context: click.Context,
+    parameter: click.Parameter,
+    value: float,
+) -> float:
+    """Validate a look-back window expressed as a positive, finite number of days."""
+    if not math.isfinite(value) or value <= 0:
+        raise click.BadParameter(
+            "must be a positive number of days",
+            ctx=context,
+            param=parameter,
+        )
+    return value
 
 
 class CommandConsoles(Protocol):

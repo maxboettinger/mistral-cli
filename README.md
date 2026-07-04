@@ -24,6 +24,9 @@ mistral transcribe interview.mp3
   envelope you can diff, re-render, or feed to other tools.
 - **Batch-friendly** — pass many sources at once; one failure never discards the
   successful results.
+- **Skips duplicate work** — rerunning the same source with the same options
+  within a recency window costs nothing: the CLI detects it and skips the API
+  call; `--force` overrides.
 - **Pipe-clean output** — Markdown goes to stdout on request; progress, paths,
   and errors stay on stderr.
 - **Agent-ready** — `--json` streams stable NDJSON records for machine
@@ -177,6 +180,8 @@ Both commands share these output options:
 | `--quiet` | Suppress progress and summary lines on stderr (errors still shown). |
 | `--no-save` | Skip result files entirely (requires `--json` or `--stdout`). |
 | `--dry-run` | Validate sources and options without calling the API — no key needed. |
+| `--force` | Process a source even if an identical recent result already exists. |
+| `--dedupe-window DAYS` | Look-back window for duplicate detection. Default: `30`. |
 
 **Where results go.** By default, into per-command directories, named with a UTC
 timestamp followed by the original source filename:
@@ -200,21 +205,51 @@ mistral transcribe part-1.mp3 part-2.mp3
 ```
 
 A failure for one source does not discard successful results or stop later
-sources. The final summary reports successes and failures, and any failure
-produces a nonzero exit status. With `--stdout` and multiple successes, Markdown
-documents are separated by a horizontal rule.
+sources. The final summary reports successes, failures, and skips, and any
+failure produces a nonzero exit status. With `--stdout` and multiple
+successes, Markdown documents are separated by a horizontal rule.
+
+**Duplicate skipping.** Before calling the API, each source is checked against
+a local index of prior results and skipped if an identical, recent one already
+exists — no charge, no network call:
+
+- **Content** matches by SHA-256 of a local file's bytes (renames don't
+  matter; different bytes never match) or by the literal value of a URL
+  source.
+- **Options** must match too — the same model, language, diarization,
+  timestamps, pages, table format, etc. (`--timeout` is ignored).
+- **Recency**: the existing result must be within `--dedupe-window DAYS`
+  (default `30`).
+- **Coverage**: the existing files must still be on disk and satisfy this
+  run's `--format`/`--stdout` needs — a Markdown-only save doesn't dedupe a
+  run that also needs the JSON envelope.
+
+A skip prints `Skipping duplicate: SOURCE (existing result from TIMESTAMP;
+use --force to reprocess).` plus one `Existing: PATH` line per artifact on
+stderr, re-emits the saved Markdown under `--stdout`, and writes a
+`status: "skipped"` record under `--json`. Pass `--force` to reprocess
+regardless (this still records the new result). `--dry-run` runs the same
+check for free and reports what it *would* skip. Duplicate checks need no API
+key, so a run where every source is a duplicate exits `0` without ever
+resolving a key.
+
+The index lives at `~/.mistral/index.ndjson` (created automatically, `0600`,
+best-effort — a read/write problem falls back to processing normally with a
+warning) and is never written to with `--no-save`.
 
 ---
 
 ## Machine-readable output & agents
 
 With `--json`, each command streams one NDJSON record per source to stdout —
-`status: "ok"` records carry the full result envelope and saved paths, failures
-appear in-band as `status: "error"` records with stable error codes
-(`input_error`, `config_error`, `api_error`, `persistence_error`,
-`unexpected_error`), and every completed run ends with a `status: "summary"`
-record. Output is ASCII-encoded, so it is immune to terminal-control injection
-and always parses:
+`status: "ok"` records carry the full result envelope and saved paths,
+`status: "skipped"` records report a duplicate that was skipped instead of
+billed (with the existing saved paths and timestamp), failures appear in-band
+as `status: "error"` records with stable error codes (`input_error`,
+`config_error`, `api_error`, `persistence_error`, `unexpected_error`), and
+every completed run ends with a `status: "summary"` record. Output is
+ASCII-encoded, so it is immune to terminal-control injection and always
+parses:
 
 ```console
 mistral ocr --json --quiet report.pdf \
@@ -225,14 +260,15 @@ Exit codes are part of the stable contract:
 
 | Code | Meaning |
 | --- | --- |
-| `0` | Every source succeeded (or validated, under `--dry-run`). |
+| `0` | Every source succeeded or was skipped as a duplicate (or validated, under `--dry-run`). |
 | `1` | At least one source failed. |
 | `2` | Usage error (bad flags or flag combination). |
 | `3` | Setup failure (missing API key, unreadable config). |
 
 For LLM agents and other tooling, `mistral agent` prints a compact usage guide
 and `mistral agent --schema` prints the JSON Schema for the NDJSON records.
-Use `--dry-run --json` to validate a batch without an API key or network calls.
+Use `--dry-run --json` to validate a batch without an API key or network
+calls — it also reports sources that would be skipped as duplicates.
 
 ---
 

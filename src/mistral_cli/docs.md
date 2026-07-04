@@ -19,7 +19,8 @@ and only one module touches the vendor SDK:
 
 ```
         cli/ (Click commands, redaction, console)
-          │  builds request objects, injects gateways
+          │  builds request objects, injects gateways;
+          │  consults dedupe.py before this pipeline runs
           ▼
    services/ (OcrService / TranscriptionService)
           │  call a narrow gateway Protocol
@@ -28,6 +29,10 @@ and only one module touches the vendor SDK:
           │  returns plain-JSON mappings
           ▼
      ApiResult ──▶ formatters.py ──▶ storage.py (durable .md/.json)
+                                          │
+                                          ▼
+                                    dedupe.py (records the save in
+                                    ~/.mistral/index.ndjson)
 
  supporting: models.py (types + validation), sources.py (input resolution),
              config.py (TOML + key resolution), errors.py + console.py (safe I/O)
@@ -68,6 +73,15 @@ header + per-page or per-segment content) and builds the stable JSON envelope
 omitting internal/secret-like request keys. `storage.py` writes those bytes
 atomically and collision-safely with UTC-timestamped filenames.
 
+`dedupe.py` gives each request a content-addressed identity: `content_key()`
+hashes a local file's bytes (`sha256:<hex>`) or keys a URL source by its
+literal value, and `request_fingerprint()` hashes the same
+`*_request_metadata()` used for the JSON envelope (minus `timeout_ms`, with
+`timestamps` order-normalized so flag order never defeats a match).
+`DedupeIndex.lookup()` / `.record()` read and append the append-only
+`~/.mistral/index.ndjson` that the batch runner in [`cli/`](cli/docs.md) uses
+to skip duplicates and then record new results.
+
 ### Things to Know
 
 Several invariants are enforced structurally across this package:
@@ -92,6 +106,11 @@ Several invariants are enforced structurally across this package:
   macOS) with a foreign-entry rollback path so an interrupted multi-file save
   never leaves partial or overwritten results; on collision it retries with an
   incrementing `-N` suffix.
+- **Best-effort duplicate index**: `dedupe.py`'s `~/.mistral/index.ndjson` is
+  append-only (`O_APPEND` + `fsync`, mode `0600`); a missing file means no
+  duplicates, corrupt or unrecognized lines are ignored on read, and any
+  `OSError` on lookup or record degrades to a stderr warning instead of
+  failing the run. `--no-save` runs never write to it.
 - **Error translation** in `errors.py` maps SDK/network/HTTP failures to concise
   domain messages (`ApiError`, `ConfigError`, `InputError`, `PersistenceError`)
   without leaking untrusted exception text, unless `--debug` is set.

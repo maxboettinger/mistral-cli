@@ -11,6 +11,12 @@ and `transcribe` (audio -> text). Both commands share one output and error model
 2. stdout carries only results: rendered Markdown with `--stdout`, or NDJSON
    records with `--json` (mutually exclusive). Progress, saved paths, errors,
    and the summary go to stderr. `--quiet` silences progress; errors remain.
+3. Identical, recent sources are skipped for free before any API call: same
+   operation, content, and request options within `--dedupe-window` days
+   (default `30`), with existing files still covering this run's needs.
+   Skips need no API key; a run where every source is a duplicate exits `0`
+   with no network calls. `--force` bypasses (and still records the new
+   result).
 
 ## Setup
 
@@ -42,7 +48,8 @@ Key `transcribe` options: `--diarize`, `--timestamps segment|word` (repeatable),
 (repeatable), `--model` (default `voxtral-mini-latest`).
 
 Shared options: `--json`, `--stdout`, `--quiet`, `--no-save`, `--dry-run`,
-`--output-dir DIR`, `--format md|json|both` (saved files), `--timeout SECONDS`.
+`--output-dir DIR`, `--format md|json|both` (saved files), `--timeout SECONDS`,
+`--force`, `--dedupe-window DAYS`.
 
 ## --json NDJSON contract (stable, schema_version 1)
 
@@ -56,25 +63,36 @@ Success:
                  "request":{...},"response":{...},"cli_version":"..."},
      "saved":{"markdown":"/path.md","json":"/path.json"}}
 
+Skipped (a duplicate of an existing recent result; the source is never sent
+to the API):
+
+    {"schema_version":1,"status":"skipped","source":"a.mp3","reason":"duplicate",
+     "existing":{"saved_at":"...Z","markdown":"/abs.md","json":"/abs.json",
+                 "model":"voxtral-mini-latest"}}
+
 Failure (in-band; `source` is null for setup failures):
 
     {"schema_version":1,"status":"error","source":"bad.pdf",
      "error":{"code":"api_error","message":"...","status_code":429}}
 
-Dry run:
+Dry run (the `duplicate` object appears when the source would be skipped;
+same shape as `existing` above):
 
     {"schema_version":1,"status":"dry_run","source":"doc.pdf","request":{...}}
+    {"schema_version":1,"status":"dry_run","source":"doc.pdf","request":{...},
+     "duplicate":{"saved_at":"...Z","markdown":"/abs.md","json":"/abs.json",
+                  "model":"voxtral-mini-latest"}}
 
 Final record of every completed run:
 
-    {"schema_version":1,"status":"summary","succeeded":2,"failed":1}
+    {"schema_version":1,"status":"summary","succeeded":2,"failed":1,"skipped":0}
 
 Error codes: `input_error`, `config_error`, `api_error` (with HTTP
 `status_code` when known), `persistence_error`, `unexpected_error`.
 
 ## Exit codes (stable)
 
-    0  every source succeeded (or validated, under --dry-run)
+    0  every source succeeded, or was skipped as a duplicate (or validated, under --dry-run)
     1  at least one source failed
     2  usage error (bad flags or flag combination)
     3  setup failure (missing API key, unreadable config)
@@ -93,6 +111,14 @@ Error codes: `input_error`, `config_error`, `api_error` (with HTTP
 
 ## Cost and scope control
 
+Duplicate skipping is the headline cost control: rerunning the same
+operation on unchanged content with unchanged options inside the
+`--dedupe-window` (default 30 days) is skipped before any API call, for
+free. Reach for `--force` to deliberately reprocess (e.g. after an upstream
+model update) and `--dedupe-window DAYS` to shrink or widen the recency
+window.
+
 OCR bills per page: restrict with `--pages`, and avoid `--include-images`,
-`--include-blocks`, `--confidence` unless needed. Validate a batch first with
-`--dry-run --json` (no network, no key).
+`--include-blocks`, `--confidence` unless needed. Validate a batch first
+with `--dry-run --json` (no network, no key; also reports would-be
+duplicate skips).

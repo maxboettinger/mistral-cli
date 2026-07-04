@@ -116,7 +116,7 @@ def harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Harness:
 
 def make_pdf(tmp_path: Path, name: str = "sample.pdf") -> Path:
     path = tmp_path / name
-    path.write_bytes(b"%PDF-1.7\n")
+    path.write_bytes(b"%PDF-1.7\n" + name.encode())
     return path
 
 
@@ -899,6 +899,7 @@ def test_json_emits_one_record_per_source_and_summary(
         "status": "summary",
         "succeeded": 2,
         "failed": 0,
+        "skipped": 0,
     }
 
 
@@ -922,6 +923,7 @@ def test_json_reports_failures_in_band_and_exits_1(
         "status": "summary",
         "succeeded": 1,
         "failed": 1,
+        "skipped": 0,
     }
 
 
@@ -1099,3 +1101,54 @@ def test_json_output_survives_control_character_injection(
     pages = cast("list[JSONValue]", response["pages"])
     page = cast("dict[str, JSONValue]", pages[0])
     assert page["markdown"] == hostile
+
+
+def test_second_identical_invocation_skips_duplicate(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_pdf(tmp_path)
+
+    first = harness.invoke(str(source))
+    assert first.exit_code == 0
+
+    second = harness.invoke(str(source))
+
+    assert second.exit_code == 0
+    assert len(harness.gateway.requests) == 1
+    assert "Skipping duplicate:" in second.stderr
+    assert "Existing:" in second.stderr
+    assert "0 succeeded, 0 failed, 1 skipped" in second.stderr
+
+
+def test_force_reprocesses_and_records_a_second_index_entry(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_pdf(tmp_path)
+    harness.invoke(str(source))
+
+    result = harness.invoke("--force", str(source))
+
+    assert result.exit_code == 0
+    assert len(harness.gateway.requests) == 2
+    index_lines = (
+        (harness.output_root / "index.ndjson")
+        .read_text(encoding="utf-8")
+        .strip()
+        .splitlines()
+    )
+    assert len(index_lines) == 2
+
+
+def test_differently_named_sources_have_distinct_content_and_are_not_duplicates(
+    harness: Harness, tmp_path: Path
+) -> None:
+    first = make_pdf(tmp_path, "first.pdf")
+    second = make_pdf(tmp_path, "second.pdf")
+    assert first.read_bytes() != second.read_bytes()
+
+    harness.invoke(str(first))
+    result = harness.invoke(str(second))
+
+    assert result.exit_code == 0
+    assert len(harness.gateway.requests) == 2
+    assert "Skipping duplicate:" not in result.stderr

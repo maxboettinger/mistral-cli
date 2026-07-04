@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC
 from pathlib import Path
 from typing import TYPE_CHECKING, Generic, Protocol, TypeVar
 
@@ -15,6 +16,13 @@ from mistral_cli.cli.common import (
     safe_terminal_text,
 )
 from mistral_cli.config import ConfigStore
+from mistral_cli.dedupe import (
+    DEDUPE_INDEX_FILENAME,
+    DedupeIndex,
+    DedupeMatch,
+    content_key,
+    request_fingerprint,
+)
 from mistral_cli.errors import (
     EXIT_FAILURE,
     EXIT_SETUP,
@@ -28,13 +36,17 @@ from mistral_cli.formatters import (
     build_dry_run_record,
     build_envelope,
     build_error_record,
+    build_existing_result,
     build_ok_record,
+    build_skipped_record,
     build_summary_record,
     serialize_ndjson,
 )
 from mistral_cli.models import (
     ApiResult,
+    InputSource,
     JSONValue,
+    Operation,
     OutputFormat,
     SavedResult,
 )
@@ -45,8 +57,14 @@ if TYPE_CHECKING:
 
 _STDOUT_SEPARATOR = "\n\n---\n\n"
 
-RequestT = TypeVar("RequestT")
-RequestT_contra = TypeVar("RequestT_contra", contravariant=True)
+
+class SourcedRequest(Protocol):
+    @property
+    def source(self) -> InputSource: ...
+
+
+RequestT = TypeVar("RequestT", bound=SourcedRequest)
+RequestT_contra = TypeVar("RequestT_contra", bound=SourcedRequest, contravariant=True)
 
 
 class BatchService(Protocol[RequestT_contra]):
@@ -67,11 +85,20 @@ class OutputOptions:
 
 
 @dataclass(frozen=True, slots=True)
+class DedupeOptions:
+    """Duplicate-result skipping options shared by every batch command."""
+
+    force: bool
+    window_days: float
+
+
+@dataclass(frozen=True, slots=True)
 class BatchPlan(Generic[RequestT]):
     """The operation-specific pieces the shared batch runner composes."""
 
     setup_debug_context: str
     source_debug_prefix: str
+    operation: Operation
     build_request: Callable[[str], RequestT]
     request_metadata: Callable[[RequestT], dict[str, JSONValue]]
     create_service: Callable[[str], BatchService[RequestT]]
@@ -83,7 +110,6 @@ class BatchPlan(Generic[RequestT]):
 class _Runtime(Generic[RequestT]):
     secrets: tuple[str, ...]
     service: BatchService[RequestT]
-    store: ResultStore
 
 
 def _validate_output_options(options: OutputOptions) -> None:
@@ -103,15 +129,20 @@ class _BatchRun(Generic[RequestT]):
         context: AppContext,
         plan: BatchPlan[RequestT],
         options: OutputOptions,
+        dedupe: DedupeOptions,
     ) -> None:
         self._context = context
         self._plan = plan
         self._options = options
+        self._dedupe = dedupe
         self._successes = 0
         self._failures = 0
+        self._skipped = 0
         self._wrote_document = False
         self._runtime: _Runtime[RequestT] | None = None
         self._potential_secrets: tuple[str, ...] | None = None
+        self._store_instance: ResultStore | None = None
+        self._index_instance: DedupeIndex | None = None
 
     def _secrets(self) -> tuple[str, ...]:
         if self._runtime is not None:
@@ -119,6 +150,18 @@ class _BatchRun(Generic[RequestT]):
         if self._potential_secrets is None:
             self._potential_secrets = candidate_secrets(self._context)
         return self._potential_secrets
+
+    def _store(self) -> ResultStore:
+        if self._store_instance is None:
+            self._store_instance = self._plan.create_store()
+        return self._store_instance
+
+    def _index(self) -> DedupeIndex:
+        if self._index_instance is None:
+            self._index_instance = DedupeIndex(
+                self._store().base_dir / DEDUPE_INDEX_FILENAME
+            )
+        return self._index_instance
 
     def _emit_record(self, record: dict[str, JSONValue]) -> None:
         self._context.consoles.write_stdout(serialize_ndjson(record))
@@ -167,15 +210,155 @@ class _BatchRun(Generic[RequestT]):
             return _Runtime(
                 secrets=secrets,
                 service=self._plan.create_service(api_key),
-                store=self._plan.create_store(),
             )
         except Exception as error:
             self._report_failure(error, None, secrets=secrets)
             raise click.exceptions.Exit(EXIT_SETUP) from error
 
+    def _required_formats(self) -> tuple[bool, bool]:
+        """Return (require_markdown, require_json) artifact coverage for this run."""
+        if self._options.no_save:
+            return self._options.write_markdown_stdout, False
+        output_format = self._options.output_format
+        require_markdown = (
+            output_format in (OutputFormat.MD, OutputFormat.BOTH)
+            or self._options.write_markdown_stdout
+        )
+        require_json = output_format in (OutputFormat.JSON, OutputFormat.BOTH)
+        return require_markdown, require_json
+
+    def _find_duplicate(self, *, key: str, fingerprint: str) -> DedupeMatch | None:
+        require_markdown, require_json = self._required_formats()
+        try:
+            return self._index().lookup(
+                operation=self._plan.operation,
+                content_key=key,
+                request_fingerprint=fingerprint,
+                window_days=self._dedupe.window_days,
+                require_markdown=require_markdown,
+                require_json=require_json,
+            )
+        except OSError as error:
+            if not self._options.quiet:
+                self._context.consoles.write_stderr(
+                    safe_terminal_text(
+                        f"Warning: duplicate check unavailable: {error}; "
+                        "processing anyway.\n",
+                        self._secrets(),
+                    )
+                )
+            return None
+
+    def _read_existing_markdown(self, path: Path) -> str | None:
+        try:
+            return path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return None
+
+    def _emit_duplicate_skip(
+        self,
+        source_value: str,
+        match: DedupeMatch,
+        existing_markdown: str | None,
+        secrets: tuple[str, ...],
+    ) -> None:
+        saved_at_text = (
+            match.saved_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+        )
+        if not self._options.quiet:
+            line = (
+                f"Skipping duplicate: {source_value} "
+                f"(existing result from {saved_at_text}; use --force to reprocess).\n"
+            )
+            self._context.consoles.write_stderr(safe_terminal_text(line, secrets))
+            for path in (match.markdown, match.json):
+                if path is not None:
+                    safe_path = safe_terminal_text(str(path), secrets)
+                    self._context.consoles.write_stderr(f"Existing: {safe_path}\n")
+        if self._options.write_markdown_stdout and existing_markdown is not None:
+            if self._wrote_document:
+                self._context.consoles.write_stdout(_STDOUT_SEPARATOR)
+            self._context.consoles.write_stdout(
+                safe_terminal_text(existing_markdown, secrets)
+            )
+            self._wrote_document = True
+        if self._options.write_json_stdout:
+            self._emit_record(
+                build_skipped_record(
+                    source=redact(source_value, secrets),
+                    existing=build_existing_result(
+                        saved_at=match.saved_at,
+                        markdown=(
+                            None
+                            if match.markdown is None
+                            else redact(str(match.markdown), secrets)
+                        ),
+                        json_path=(
+                            None
+                            if match.json is None
+                            else redact(str(match.json), secrets)
+                        ),
+                        model=(
+                            None
+                            if match.model is None
+                            else redact(match.model, secrets)
+                        ),
+                    ),
+                )
+            )
+
     def _dry_run_source(self, source_value: str, request: RequestT) -> None:
         metadata = self._plan.request_metadata(request)
         secrets = self._secrets()
+        match: DedupeMatch | None = None
+        if not self._dedupe.force:
+            try:
+                key = content_key(request.source)
+                fingerprint = request_fingerprint(metadata)
+            except Exception as error:
+                self._report_failure(error, source_value)
+                self._failures += 1
+                return
+            match = self._find_duplicate(key=key, fingerprint=fingerprint)
+
+        if match is not None:
+            saved_at_text = (
+                match.saved_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+            )
+            if self._options.write_json_stdout:
+                self._emit_record(
+                    build_dry_run_record(
+                        source=redact(source_value, secrets),
+                        request_metadata=metadata,
+                        duplicate=build_existing_result(
+                            saved_at=match.saved_at,
+                            markdown=(
+                                None
+                                if match.markdown is None
+                                else redact(str(match.markdown), secrets)
+                            ),
+                            json_path=(
+                                None
+                                if match.json is None
+                                else redact(str(match.json), secrets)
+                            ),
+                            model=(
+                                None
+                                if match.model is None
+                                else redact(match.model, secrets)
+                            ),
+                        ),
+                    )
+                )
+            elif not self._options.quiet:
+                line = (
+                    f"Would skip (duplicate): {source_value} "
+                    f"(existing result from {saved_at_text}).\n"
+                )
+                self._context.consoles.write_stderr(safe_terminal_text(line, secrets))
+            self._successes += 1
+            return
+
         if self._options.write_json_stdout:
             self._emit_record(
                 build_dry_run_record(
@@ -189,6 +372,39 @@ class _BatchRun(Generic[RequestT]):
         self._successes += 1
 
     def _process_source(self, source_value: str, request: RequestT) -> None:
+        metadata = self._plan.request_metadata(request)
+        secrets = self._secrets()
+        key: str | None = None
+        fingerprint: str | None = None
+        match: DedupeMatch | None = None
+        skip_dedupe_entirely = self._options.no_save and self._dedupe.force
+        try:
+            if not skip_dedupe_entirely:
+                key = content_key(request.source)
+                fingerprint = request_fingerprint(metadata)
+                if not self._dedupe.force:
+                    match = self._find_duplicate(key=key, fingerprint=fingerprint)
+        except Exception as error:
+            self._report_failure(error, source_value)
+            self._failures += 1
+            return
+
+        existing_markdown: str | None = None
+        if match is not None and self._options.write_markdown_stdout:
+            existing_markdown = (
+                self._read_existing_markdown(match.markdown)
+                if match.markdown is not None
+                else None
+            )
+            if existing_markdown is None:
+                # Recorded markdown is missing or unreadable: process normally.
+                match = None
+
+        if match is not None:
+            self._emit_duplicate_skip(source_value, match, existing_markdown, secrets)
+            self._skipped += 1
+            return
+
         if self._runtime is None:
             self._runtime = self._create_runtime()
         runtime = self._runtime
@@ -208,7 +424,7 @@ class _BatchRun(Generic[RequestT]):
             if self._options.no_save:
                 saved = SavedResult()
             else:
-                saved = runtime.store.save(
+                saved = self._store().save(
                     safe_result,
                     markdown,
                     self._options.output_format,
@@ -248,6 +464,26 @@ class _BatchRun(Generic[RequestT]):
                 self._report_failure(error, source_value)
                 self._failures += 1
                 return
+        if not self._options.no_save and key is not None and fingerprint is not None:
+            model_value = metadata.get("model")
+            try:
+                self._index().record(
+                    operation=self._plan.operation,
+                    content_key=key,
+                    request_fingerprint=fingerprint,
+                    source=request.source,
+                    model=model_value if isinstance(model_value, str) else None,
+                    saved=saved,
+                )
+            except OSError as error:
+                if not self._options.quiet:
+                    self._context.consoles.write_stderr(
+                        safe_terminal_text(
+                            "Warning: could not record result for duplicate "
+                            f"detection: {error}.\n",
+                            secrets,
+                        )
+                    )
         self._successes += 1
 
     def run(self, sources: tuple[str, ...]) -> None:
@@ -265,13 +501,15 @@ class _BatchRun(Generic[RequestT]):
 
         if not self._options.quiet:
             self._context.consoles.write_stderr(
-                f"Summary: {self._successes} succeeded, {self._failures} failed.\n"
+                f"Summary: {self._successes} succeeded, {self._failures} failed, "
+                f"{self._skipped} skipped.\n"
             )
         if self._options.write_json_stdout:
             self._emit_record(
                 build_summary_record(
                     succeeded=self._successes,
                     failed=self._failures,
+                    skipped=self._skipped,
                 )
             )
         if self._failures:
@@ -283,7 +521,8 @@ def run_batch(
     sources: tuple[str, ...],
     plan: BatchPlan[RequestT],
     options: OutputOptions,
+    dedupe: DedupeOptions,
 ) -> None:
     """Run a batch command loop with the shared output and error contract."""
     _validate_output_options(options)
-    _BatchRun(context, plan, options).run(sources)
+    _BatchRun(context, plan, options, dedupe).run(sources)

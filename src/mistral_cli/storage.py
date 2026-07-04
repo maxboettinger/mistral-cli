@@ -434,6 +434,10 @@ class ResultStore:
         self._clock = clock
         self._version = version
 
+    @property
+    def base_dir(self) -> Path:
+        return self._base_dir
+
     def save(
         self,
         result: ApiResult,

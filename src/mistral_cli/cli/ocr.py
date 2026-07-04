@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, cast
 
 import click
 
-from mistral_cli.cli.runner import BatchPlan, OutputOptions, run_batch
+from mistral_cli.cli.common import positive_days
+from mistral_cli.cli.runner import BatchPlan, DedupeOptions, OutputOptions, run_batch
 from mistral_cli.formatters import format_ocr_markdown
 from mistral_cli.mistral_client import MistralGateway
 from mistral_cli.models import (
@@ -154,6 +155,20 @@ def _nonnegative_integer(
     is_flag=True,
     help="Validate sources and options without calling the API.",
 )
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Process the source even if an identical recent result exists.",
+)
+@click.option(
+    "--dedupe-window",
+    type=float,
+    default=30.0,
+    show_default=True,
+    metavar="DAYS",
+    callback=positive_days,
+    help="Look-back window in days for skipping identical, already-saved results.",
+)
 @click.pass_obj
 def ocr(
     context: AppContext,
@@ -176,6 +191,8 @@ def ocr(
     quiet: bool,
     no_save: bool,
     dry_run: bool,
+    force: bool,
+    dedupe_window: float,
 ) -> None:
     """Extract readable text from local documents, images, or HTTP(S) URLs."""
     selected_table_format = (
@@ -205,6 +222,7 @@ def ocr(
         BatchPlan(
             setup_debug_context="setting up OCR command",
             source_debug_prefix="OCR source",
+            operation=Operation.OCR,
             build_request=build_request,
             request_metadata=ocr_request_metadata,
             create_service=lambda api_key: OcrService(create_gateway(api_key)),
@@ -220,4 +238,5 @@ def ocr(
             no_save=no_save,
             dry_run=dry_run,
         ),
+        DedupeOptions(force=force, window_days=dedupe_window),
     )

@@ -79,6 +79,16 @@ def record_schema() -> dict[str, JSONValue]:
             },
         },
     }
+    existing_result: dict[str, JSONValue] = {
+        "type": "object",
+        "required": ["saved_at", "markdown", "json", "model"],
+        "properties": {
+            "saved_at": {"type": "string", "format": "date-time"},
+            "markdown": _nullable_string(),
+            "json": _nullable_string(),
+            "model": _nullable_string(),
+        },
+    }
     dry_run_variant: dict[str, JSONValue] = {
         "required": ["schema_version", "status", "source", "request"],
         "properties": {
@@ -86,15 +96,27 @@ def record_schema() -> dict[str, JSONValue]:
             "status": {"const": "dry_run"},
             "source": {"type": "string"},
             "request": {"type": "object"},
+            "duplicate": existing_result,
+        },
+    }
+    skipped_variant: dict[str, JSONValue] = {
+        "required": ["schema_version", "status", "source", "reason", "existing"],
+        "properties": {
+            "schema_version": schema_version,
+            "status": {"const": "skipped"},
+            "source": {"type": "string"},
+            "reason": {"const": "duplicate"},
+            "existing": existing_result,
         },
     }
     summary_variant: dict[str, JSONValue] = {
-        "required": ["schema_version", "status", "succeeded", "failed"],
+        "required": ["schema_version", "status", "succeeded", "failed", "skipped"],
         "properties": {
             "schema_version": schema_version,
             "status": {"const": "summary"},
             "succeeded": {"type": "integer", "minimum": 0},
             "failed": {"type": "integer", "minimum": 0},
+            "skipped": {"type": "integer", "minimum": 0},
         },
     }
     return {
@@ -105,5 +127,11 @@ def record_schema() -> dict[str, JSONValue]:
             "plus a final summary record."
         ),
         "type": "object",
-        "oneOf": [ok_variant, error_variant, dry_run_variant, summary_variant],
+        "oneOf": [
+            ok_variant,
+            error_variant,
+            dry_run_variant,
+            skipped_variant,
+            summary_variant,
+        ],
     }

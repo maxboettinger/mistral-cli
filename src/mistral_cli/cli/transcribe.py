@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, cast
 
 import click
 
-from mistral_cli.cli.runner import BatchPlan, OutputOptions, run_batch
+from mistral_cli.cli.common import positive_days
+from mistral_cli.cli.runner import BatchPlan, DedupeOptions, OutputOptions, run_batch
 from mistral_cli.formatters import format_transcription_markdown
 from mistral_cli.mistral_client import MistralGateway
 from mistral_cli.models import (
@@ -117,6 +118,20 @@ def create_result_store() -> ResultStore:
     is_flag=True,
     help="Validate sources and options without calling the API.",
 )
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Process the source even if an identical recent result exists.",
+)
+@click.option(
+    "--dedupe-window",
+    type=float,
+    default=30.0,
+    show_default=True,
+    metavar="DAYS",
+    callback=positive_days,
+    help="Look-back window in days for skipping identical, already-saved results.",
+)
 @click.pass_obj
 def transcribe(
     context: AppContext,
@@ -135,6 +150,8 @@ def transcribe(
     quiet: bool,
     no_save: bool,
     dry_run: bool,
+    force: bool,
+    dedupe_window: float,
 ) -> None:
     """Transcribe local audio files or HTTP(S) URLs into text."""
     selected_timestamps = cast("tuple[TimestampGranularity, ...]", timestamps)
@@ -157,6 +174,7 @@ def transcribe(
         BatchPlan(
             setup_debug_context="setting up transcription command",
             source_debug_prefix="Transcription source",
+            operation=Operation.TRANSCRIPTION,
             build_request=build_request,
             request_metadata=transcription_request_metadata,
             create_service=lambda api_key: TranscriptionService(
@@ -174,4 +192,5 @@ def transcribe(
             no_save=no_save,
             dry_run=dry_run,
         ),
+        DedupeOptions(force=force, window_days=dedupe_window),
     )

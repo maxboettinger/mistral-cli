@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
@@ -110,7 +111,7 @@ def harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Harness:
 
 def make_audio(tmp_path: Path, name: str = "sample.mp3") -> Path:
     path = tmp_path / name
-    path.write_bytes(b"ID3\x04\x00\x00")
+    path.write_bytes(b"ID3\x04\x00\x00" + name.encode())
     return path
 
 
@@ -746,3 +747,305 @@ def test_quiet_suppresses_progress_lines(harness: Harness, tmp_path: Path) -> No
 
     assert result.exit_code == 0
     assert result.stderr == ""
+
+
+def test_second_identical_invocation_skips_duplicate(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_audio(tmp_path)
+
+    first = harness.invoke(str(source))
+    assert first.exit_code == 0
+
+    second = harness.invoke(str(source))
+
+    assert second.exit_code == 0
+    assert len(harness.gateway.requests) == 1
+    assert "Skipping duplicate:" in second.stderr
+    assert "Existing:" in second.stderr
+    assert "0 succeeded, 0 failed, 1 skipped" in second.stderr
+
+
+def test_duplicate_skip_never_resolves_api_key(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_audio(tmp_path)
+    first = harness.invoke(str(source))
+    assert first.exit_code == 0
+    assert harness.api_keys == ["config-secret"]
+    ConfigStore(harness.config_path).unset("api-key")
+
+    second = harness.invoke(str(source))
+
+    assert second.exit_code == 0
+    assert harness.api_keys == ["config-secret"]
+    assert len(harness.gateway.requests) == 1
+
+
+def test_force_reprocesses_and_records_a_second_index_entry(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_audio(tmp_path)
+    harness.invoke(str(source))
+
+    result = harness.invoke("--force", str(source))
+
+    assert result.exit_code == 0
+    assert len(harness.gateway.requests) == 2
+    index_lines = (
+        (harness.output_root / "index.ndjson")
+        .read_text(encoding="utf-8")
+        .strip()
+        .splitlines()
+    )
+    assert len(index_lines) == 2
+
+
+def test_same_filename_different_bytes_is_not_a_duplicate(
+    harness: Harness, tmp_path: Path
+) -> None:
+    first_dir = tmp_path / "a"
+    second_dir = tmp_path / "b"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    first = first_dir / "clip.mp3"
+    first.write_bytes(b"ID3\x04\x00\x00one")
+    second = second_dir / "clip.mp3"
+    second.write_bytes(b"ID3\x04\x00\x00two")
+    harness.invoke(str(first))
+
+    result = harness.invoke(str(second))
+
+    assert result.exit_code == 0
+    assert len(harness.gateway.requests) == 2
+    assert "Skipping duplicate:" not in result.stderr
+
+
+def test_different_request_options_is_not_a_duplicate(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_audio(tmp_path)
+    harness.invoke(str(source))
+
+    result = harness.invoke("--diarize", str(source))
+
+    assert result.exit_code == 0
+    assert len(harness.gateway.requests) == 2
+    assert "Skipping duplicate:" not in result.stderr
+
+
+def test_stdout_skip_reemits_the_saved_markdown_exactly(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_audio(tmp_path)
+    first = harness.invoke(str(source), "--stdout")
+    assert first.exit_code == 0
+    saved_markdown = next((harness.output_root / "transcriptions").glob("*.md"))
+    saved_content = saved_markdown.read_text(encoding="utf-8")
+
+    second = harness.invoke(str(source), "--stdout")
+
+    assert second.exit_code == 0
+    assert len(harness.gateway.requests) == 1
+    assert second.stdout == saved_content
+
+
+def test_json_skip_record_shape_and_summary_skipped_count(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_audio(tmp_path)
+    first = harness.invoke("--json", str(source))
+    first_saved = cast("dict[str, JSONValue]", parse_ndjson(first.stdout)[0]["saved"])
+
+    result = harness.invoke("--json", str(source))
+
+    assert result.exit_code == 0
+    records = parse_ndjson(result.stdout)
+    assert [record["status"] for record in records] == ["skipped", "summary"]
+    skipped = records[0]
+    assert skipped["source"] == str(source)
+    assert skipped["reason"] == "duplicate"
+    existing = cast("dict[str, JSONValue]", skipped["existing"])
+    assert existing["markdown"] == first_saved["markdown"]
+    assert existing["json"] == first_saved["json"]
+    assert existing["model"] == "voxtral-mini-latest"
+    assert records[-1] == {
+        "schema_version": 1,
+        "status": "summary",
+        "succeeded": 0,
+        "failed": 0,
+        "skipped": 1,
+    }
+
+
+def test_dedupe_window_expiry_reprocesses_a_stale_entry(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_audio(tmp_path)
+    harness.invoke(str(source))
+    index_path = harness.output_root / "index.ndjson"
+    entry = json.loads(index_path.read_text(encoding="utf-8").strip())
+    stale = datetime.now(UTC) - timedelta(days=40)
+    entry["saved_at"] = stale.isoformat().replace("+00:00", "Z")
+    index_path.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+
+    result = harness.invoke(str(source))
+
+    assert result.exit_code == 0
+    assert len(harness.gateway.requests) == 2
+    assert "Skipping duplicate:" not in result.stderr
+
+
+def test_dedupe_window_override_treats_a_stale_entry_as_recent(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_audio(tmp_path)
+    harness.invoke(str(source))
+    index_path = harness.output_root / "index.ndjson"
+    entry = json.loads(index_path.read_text(encoding="utf-8").strip())
+    stale = datetime.now(UTC) - timedelta(days=40)
+    entry["saved_at"] = stale.isoformat().replace("+00:00", "Z")
+    index_path.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+
+    result = harness.invoke("--dedupe-window", "3650", str(source))
+
+    assert result.exit_code == 0
+    assert len(harness.gateway.requests) == 1
+    assert "Skipping duplicate:" in result.stderr
+
+
+def test_dedupe_window_huge_value_skips_instead_of_raising_overflow_error(
+    harness: Harness, tmp_path: Path
+) -> None:
+    """`--dedupe-window 1e9` exceeds timedelta's day limit; DedupeIndex.lookup
+    must clamp it instead of letting OverflowError blow up the run."""
+    source = make_audio(tmp_path)
+    harness.invoke(str(source))
+
+    result = harness.invoke("--dedupe-window", "1e9", str(source))
+
+    assert result.exit_code == 0
+    assert len(harness.gateway.requests) == 1
+    assert "Skipping duplicate:" in result.stderr
+
+
+def test_dedupe_window_tiny_value_forces_reprocessing(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_audio(tmp_path)
+    harness.invoke(str(source))
+    index_path = harness.output_root / "index.ndjson"
+    entry = json.loads(index_path.read_text(encoding="utf-8").strip())
+    recent_past = datetime.now(UTC) - timedelta(hours=1)
+    entry["saved_at"] = recent_past.isoformat().replace("+00:00", "Z")
+    index_path.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+
+    result = harness.invoke("--dedupe-window", "0.000001", str(source))
+
+    assert result.exit_code == 0
+    assert len(harness.gateway.requests) == 2
+    assert "Skipping duplicate:" not in result.stderr
+
+
+@pytest.mark.parametrize("window", ["0", "-1", "inf"])
+def test_dedupe_window_rejects_non_positive_or_infinite_values(
+    harness: Harness, tmp_path: Path, window: str
+) -> None:
+    source = make_audio(tmp_path)
+
+    result = harness.invoke("--dedupe-window", window, str(source))
+
+    assert result.exit_code == 2
+    assert harness.gateway.requests == []
+
+
+def test_dry_run_reports_would_skip_duplicate_and_still_counts_as_succeeded(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_audio(tmp_path)
+    harness.invoke(str(source))
+
+    result = harness.invoke("--dry-run", str(source))
+
+    assert result.exit_code == 0
+    assert len(harness.gateway.requests) == 1
+    assert "Would skip (duplicate):" in result.stderr
+    assert "1 succeeded, 0 failed, 0 skipped" in result.stderr
+
+
+def test_dry_run_json_duplicate_record_carries_the_duplicate_object(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_audio(tmp_path)
+    first = harness.invoke("--json", str(source))
+    first_saved = cast("dict[str, JSONValue]", parse_ndjson(first.stdout)[0]["saved"])
+
+    result = harness.invoke("--dry-run", "--json", str(source))
+
+    assert result.exit_code == 0
+    records = parse_ndjson(result.stdout)
+    assert [record["status"] for record in records] == ["dry_run", "summary"]
+    duplicate = cast("dict[str, JSONValue]", records[0]["duplicate"])
+    assert duplicate["markdown"] == first_saved["markdown"]
+    assert duplicate["json"] == first_saved["json"]
+    assert records[-1]["succeeded"] == 1
+    assert records[-1]["skipped"] == 0
+
+
+def test_deleted_artifact_forces_reprocessing(harness: Harness, tmp_path: Path) -> None:
+    source = make_audio(tmp_path)
+    harness.invoke(str(source), "--format", "md")
+    saved_markdown = next((harness.output_root / "transcriptions").glob("*.md"))
+    saved_markdown.unlink()
+
+    result = harness.invoke(str(source), "--format", "md")
+
+    assert result.exit_code == 0
+    assert len(harness.gateway.requests) == 2
+    assert "Skipping duplicate:" not in result.stderr
+
+
+def test_corrupt_index_line_does_not_block_processing(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_audio(tmp_path)
+    index_path = harness.output_root / "index.ndjson"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text("not-json-at-all\n", encoding="utf-8")
+
+    result = harness.invoke(str(source))
+
+    assert result.exit_code == 0
+    assert len(harness.gateway.requests) == 1
+    lines = index_path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 2
+
+
+def test_no_save_records_nothing_in_the_index(harness: Harness, tmp_path: Path) -> None:
+    source = make_audio(tmp_path)
+
+    result = harness.invoke("--no-save", "--json", str(source))
+
+    assert result.exit_code == 0
+    assert not (harness.output_root / "index.ndjson").exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX file permissions")
+def test_unreadable_stored_markdown_falls_through_to_processing(
+    harness: Harness, tmp_path: Path
+) -> None:
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root ignores file permission bits")
+    source = make_audio(tmp_path)
+    harness.invoke(str(source), "--stdout")
+    saved_markdown = next((harness.output_root / "transcriptions").glob("*.md"))
+    saved_markdown.chmod(0o000)
+
+    try:
+        result = harness.invoke(str(source), "--stdout")
+    finally:
+        saved_markdown.chmod(0o600)
+
+    assert result.exit_code == 0
+    assert len(harness.gateway.requests) == 2
+    assert "Skipping duplicate:" not in result.stderr

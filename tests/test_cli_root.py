@@ -1,5 +1,6 @@
 from click.testing import CliRunner
 
+from mistral_cli import __version__
 from mistral_cli.cli.main import cli
 
 
@@ -16,4 +17,4 @@ def test_root_version_reports_package_version() -> None:
     result = CliRunner().invoke(cli, ["--version"])
 
     assert result.exit_code == 0
-    assert "0.1.0" in result.output
+    assert __version__ in result.output

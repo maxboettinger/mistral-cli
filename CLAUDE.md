@@ -50,6 +50,7 @@ Strict layering, dependencies point inward. The request flow:
 | `sources.py` | Resolves a source string to a local-file or URL `InputSource`. |
 | `formatters.py` | Result → Markdown. |
 | `storage.py` | `ResultStore`: collision-safe atomic saves to `~/.mistral/{ocr,transcriptions}/`. |
+| `dedupe.py` | `DedupeIndex`: content-addressed duplicate detection; NDJSON index under `~/.mistral`. |
 | `errors.py`, `console.py` | Translate, redact, and safely present failures. |
 
 Services take a gateway `Protocol`, not the concrete SDK client — tests inject
@@ -92,10 +93,12 @@ in sync when the CLI surface changes.
 The command modules normalize options (`--table-format inline` /
 `--confidence none` → `None`) and delegate the loop to `run_batch()`
 (`cli/runner.py`), which owns per-source `try/except` (one failure never stops
-later sources), lazy API-key/runtime setup, dry-run short-circuiting, stdout
-emission, and the exit-code decision (`Exit(1)` on any source failure,
-`Exit(3)` on setup failure). New request options are added to the
-`build_*_request` validators in `models.py` and echoed into
+later sources), a duplicate check (`dedupe.DedupeIndex`) that runs before
+API-key/runtime setup so an all-duplicate batch needs no key, lazy
+API-key/runtime setup for the rest, dry-run short-circuiting, stdout emission,
+and the exit-code decision (`Exit(1)` on any source failure, `Exit(3)` on
+setup failure; skips count toward neither). New request options are added to
+the `build_*_request` validators in `models.py` and echoed into
 `*_request_metadata()` so they land in the saved JSON envelope, the NDJSON
 records, and `--dry-run` output.
 
