@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,10 +23,11 @@ class AppContext:
 
 
 @click.group(
+    context_settings={"help_option_names": ["-h", "--help"]},
     epilog=(
         "Run 'mistral agent' for agent-oriented usage docs and "
         "'mistral agent --schema' for the JSON output schema."
-    )
+    ),
 )
 @click.version_option(version=__version__)
 @click.option("--debug", is_flag=True, help="Show detailed error information.")

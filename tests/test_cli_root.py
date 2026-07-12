@@ -18,3 +18,14 @@ def test_root_version_reports_package_version() -> None:
 
     assert result.exit_code == 0
     assert __version__ in result.output
+
+
+def test_h_is_a_help_alias_for_root_and_subcommands() -> None:
+    root = CliRunner().invoke(cli, ["-h"])
+    subcommand = CliRunner().invoke(cli, ["ocr", "-h"])
+
+    assert root.exit_code == 0
+    assert "Usage:" in root.output
+    assert "ocr" in root.output
+    assert subcommand.exit_code == 0
+    assert "--table-format" in subcommand.output
