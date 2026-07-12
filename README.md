@@ -46,23 +46,40 @@ mistral transcribe interview.mp3
 ## Quickstart
 
 **1. Install** as an isolated command with [uv](https://docs.astral.sh/uv/)
-(or [pipx](https://pipx.pypa.io/)):
+(or [pipx](https://pipx.pypa.io/)), always from a checkout of this
+repository — this tool is not published on PyPI:
 
 ```console
-uv tool install .
+uv tool install .                        # from inside the repo
+uv tool install ~/github/mistral-cli    # or from anywhere, by path
 ```
 
-To upgrade an existing install after pulling changes, force a rebuild —
-`uv tool install .` alone may reuse a previously built wheel when the
-version number hasn't changed:
+**Updating** after pulling or editing code: force a rebuild. A plain
+`uv tool install .` may silently reuse a previously built wheel when the
+version number hasn't changed, leaving the installed command stale:
 
 ```console
 uv tool install --reinstall --force .
 ```
 
-> **Note:** never `uv tool install mistral` — the PyPI package named
-> `mistral` is OpenStack Mistral (a workflow service), not this CLI.
-> Install from this repository (or a checkout path) as shown above.
+Then verify you are running this tool and that it picked up the new code:
+
+```console
+uv tool list          # the `mistral` executable must be listed under `mistral-cli`
+mistral --help        # must show: agent, config, ocr, transcribe
+```
+
+> **Warning:** never `uv tool install mistral` or `pipx install mistral`.
+> The PyPI package named `mistral` is OpenStack Mistral (a workflow
+> service unrelated to Mistral AI), and it installs a binary with the
+> *same name*, silently shadowing this CLI. There is no `mistral-cli`
+> package on PyPI either — the only install source is this repository.
+> If you installed the wrong package, recover with:
+>
+> ```console
+> uv tool uninstall mistral               # or: pipx uninstall mistral
+> uv tool install ~/github/mistral-cli
+> ```
 
 **2. Store your API key** (hidden, confirmed prompt):
 
