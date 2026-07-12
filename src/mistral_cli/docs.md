@@ -110,12 +110,15 @@ Several invariants are enforced structurally across this package:
   `0600` through a same-directory temp file + atomic `os.replace`, parses TOML
   strictly, and preserves unrelated keys on update. The key is still stored as
   plaintext.
-- **Atomic, non-clobbering persistence**: `storage.py` reserves a per-name lock
-  file, publishes each output through `mkstemp` + `os.link`, and uses
-  platform-specific no-replace renames (`renameat2` on Linux, `renamex_np` on
-  macOS) with a foreign-entry rollback path so an interrupted multi-file save
-  never leaves partial or overwritten results; on collision it retries with an
-  incrementing `-N` suffix.
+- **Atomic, non-clobbering persistence**: `storage.py` writes full content to a
+  private temp file (`mkstemp`, `fsync`) in the destination directory, then
+  `os.link`s it to each final name; `os.link` fails atomically on `FileExistsError`
+  if the name is taken, so there's no separate existence check, lock file, or
+  rename step. On collision it unlinks the sibling links/temp files created for
+  that attempt and retries with an incrementing `-N` suffix. This gives the same
+  two guarantees as before with less machinery: a file is never overwritten
+  (enforced by `os.link`'s atomicity), and a visible file is always complete
+  (enforced by writing + fsyncing before it's ever linked into a visible name).
 - **Best-effort duplicate index**: `dedupe.py`'s `~/.mistral/index.ndjson` is
   append-only (`O_APPEND` + `fsync`, mode `0600`); a missing file means no
   duplicates, corrupt or unrecognized lines are ignored on read, and any
