@@ -204,7 +204,7 @@ class _BatchRun(Generic[RequestT]):
             api_key = ConfigStore(self._context.config_path).resolve_api_key()
         except ConfigError as error:
             self._report_failure(error, None)
-            raise click.exceptions.Exit(EXIT_SETUP) from error
+            raise SystemExit(EXIT_SETUP) from error
         secrets = extend_secrets(self._secrets(), api_key)
         try:
             return _Runtime(
@@ -213,7 +213,7 @@ class _BatchRun(Generic[RequestT]):
             )
         except Exception as error:
             self._report_failure(error, None, secrets=secrets)
-            raise click.exceptions.Exit(EXIT_SETUP) from error
+            raise SystemExit(EXIT_SETUP) from error
 
     def _required_formats(self) -> tuple[bool, bool]:
         """Return (require_markdown, require_json) artifact coverage for this run."""
@@ -513,7 +513,7 @@ class _BatchRun(Generic[RequestT]):
                 )
             )
         if self._failures:
-            raise click.exceptions.Exit(EXIT_FAILURE)
+            raise SystemExit(EXIT_FAILURE)
 
 
 def run_batch(

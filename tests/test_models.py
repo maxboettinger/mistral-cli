@@ -437,6 +437,7 @@ def test_ocr_request_metadata_mirrors_request(source: InputSource) -> None:
         "image_min_size": None,
         "include_blocks": False,
         "confidence": "word",
+        "retries": 3,
         "timeout_ms": 10_000,
     }
 
@@ -458,5 +459,38 @@ def test_transcription_request_metadata_mirrors_request(source: InputSource) -> 
         "diarize": True,
         "context_bias": ["Mistral"],
         "timestamps": ["segment"],
+        "retries": 3,
         "timeout_ms": 10_000,
     }
+
+
+def test_requests_default_to_three_retries(source: InputSource) -> None:
+    ocr = build_ocr_request(source=source, model="m")
+    transcription = build_transcription_request(source=source, model="m")
+
+    assert ocr.retries == 3
+    assert transcription.retries == 3
+
+
+@pytest.mark.parametrize("retries", [-1, True, 2.0])
+def test_invalid_retries_are_rejected(source: InputSource, retries: object) -> None:
+    with pytest.raises(InputError, match="--retries"):
+        build_ocr_request(
+            source=source,
+            model="m",
+            retries=retries,  # type: ignore[arg-type]
+        )
+    with pytest.raises(InputError, match="--retries"):
+        build_transcription_request(
+            source=source,
+            model="m",
+            retries=retries,  # type: ignore[arg-type]
+        )
+
+
+def test_request_metadata_includes_retries(source: InputSource) -> None:
+    ocr = build_ocr_request(source=source, model="m", retries=0)
+    transcription = build_transcription_request(source=source, model="m", retries=5)
+
+    assert ocr_request_metadata(ocr)["retries"] == 0
+    assert transcription_request_metadata(transcription)["retries"] == 5

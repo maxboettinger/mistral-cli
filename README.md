@@ -1,5 +1,9 @@
 # mistral-cli
 
+[![CI](https://github.com/maxboettinger/mistral-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/maxboettinger/mistral-cli/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 **A modern command-line interface for [Mistral OCR](https://docs.mistral.ai/studio-api/document-processing/basic_ocr) and [Mistral audio transcription](https://docs.mistral.ai/studio-api/audio/speech_to_text/offline_transcription).**
 
 Turn PDFs and images into structured Markdown, and turn audio into text — from
@@ -46,23 +50,40 @@ mistral transcribe interview.mp3
 ## Quickstart
 
 **1. Install** as an isolated command with [uv](https://docs.astral.sh/uv/)
-(or [pipx](https://pipx.pypa.io/)):
+(or [pipx](https://pipx.pypa.io/)), always from a checkout of this
+repository — this tool is not published on PyPI:
 
 ```console
-uv tool install .
+git clone https://github.com/maxboettinger/mistral-cli.git
+uv tool install ./mistral-cli
 ```
 
-To upgrade an existing install after pulling changes, force a rebuild —
-`uv tool install .` alone may reuse a previously built wheel when the
-version number hasn't changed:
+**Updating** after pulling or editing code: force a rebuild. A plain
+`uv tool install .` may silently reuse a previously built wheel when the
+version number hasn't changed, leaving the installed command stale:
 
 ```console
 uv tool install --reinstall --force .
 ```
 
-> **Note:** never `uv tool install mistral` — the PyPI package named
-> `mistral` is OpenStack Mistral (a workflow service), not this CLI.
-> Install from this repository (or a checkout path) as shown above.
+Then verify you are running this tool and that it picked up the new code:
+
+```console
+uv tool list          # the `mistral` executable must be listed under `mistral-cli`
+mistral --help        # must show: agent, config, ocr, transcribe
+```
+
+> **Warning:** never `uv tool install mistral` or `pipx install mistral`.
+> The PyPI package named `mistral` is OpenStack Mistral (a workflow
+> service unrelated to Mistral AI), and it installs a binary with the
+> *same name*, silently shadowing this CLI. There is no `mistral-cli`
+> package on PyPI either — the only install source is this repository.
+> If you installed the wrong package, recover with:
+>
+> ```console
+> uv tool uninstall mistral               # or: pipx uninstall mistral
+> uv tool install ./mistral-cli
+> ```
 
 **2. Store your API key** (hidden, confirmed prompt):
 
@@ -103,7 +124,8 @@ mistral ocr https://example.com/report.pdf
 ```
 
 > Public URLs must be directly reachable by Mistral. Local files are read and
-> sent as base64 data URLs.
+> sent as base64 data URLs. Local files are limited to 50 MB (they are sent
+> inline as base64); larger documents should be hosted at a URL.
 
 Common options:
 
@@ -129,6 +151,7 @@ mistral ocr report.pdf \
 | `--confidence none\|page\|word` | Confidence detail level. |
 | `--model TEXT` | OCR model. Default: `mistral-ocr-latest`. |
 | `--timeout SECONDS` | Positive request timeout. Default: `300`. |
+| `--retries N` | Retry attempts for rate-limited, server-error, and connection failures, with exponential backoff. Default: `3`; `0` disables. |
 
 Some options depend on model capabilities — see the
 [official OCR documentation](https://docs.mistral.ai/studio-api/document-processing/basic_ocr).
@@ -161,6 +184,7 @@ mistral transcribe interview.mp3 \
 | `--timestamps segment\|word` | Repeatable; duplicates ignored. |
 | `--model TEXT` | Transcription model. Default: `voxtral-mini-latest`. |
 | `--timeout SECONDS` | Positive request timeout. Default: `300`. |
+| `--retries N` | Retry attempts for rate-limited, server-error, and connection failures, with exponential backoff. Default: `3`; `0` disables. |
 
 > `--language` and `--timestamps` cannot be combined — the Mistral API does not
 > support that pairing.
@@ -319,6 +343,17 @@ Select a different file with the root `--config` option:
 mistral --config ./private-config.toml config set api-key
 ```
 
+### Shell completion
+
+Click provides tab completion for commands and options. Add the line for
+your shell to its startup file:
+
+```console
+eval "$(_MISTRAL_COMPLETE=zsh_source mistral)"     # ~/.zshrc
+eval "$(_MISTRAL_COMPLETE=bash_source mistral)"    # ~/.bashrc
+_MISTRAL_COMPLETE=fish_source mistral | source     # ~/.config/fish/config.fish
+```
+
 ---
 
 ## Errors, debugging & security
@@ -330,6 +365,12 @@ the command to include diagnostic tracebacks:
 ```console
 mistral --debug transcribe interview.mp3
 ```
+
+Transient failures that fail fast — HTTP 429 rate limits, 5xx server errors,
+refused connections — are retried automatically with exponential backoff
+(`--retries`, default 3). Requests that fail slowly (e.g. timeouts) exhaust
+the retry budget and are not retried. A request that never succeeded is
+never billed.
 
 Security properties:
 
@@ -369,7 +410,7 @@ domain models, use cases, and the SDK adapter:
 
 | Module | Responsibility |
 | --- | --- |
-| `cli/` | Click commands, validation flow, and Rich console reporting. |
+| `cli/` | Click commands, validation flow, and sanitized console reporting. |
 | `models.py` | SDK-independent request and result types. |
 | `services/` | OCR and transcription use cases behind gateway protocols. |
 | `mistral_client.py` | Adapter for the official Mistral Python SDK. |
@@ -385,6 +426,8 @@ the use case through a gateway protocol → **mistral_client** calls the SDK →
 behind fakes and cover command behavior, mapping, formatting, configuration,
 security boundaries, and persistence.
 
+See [CHANGELOG.md](CHANGELOG.md) for release history.
+
 ---
 
 ## References
@@ -393,4 +436,3 @@ security boundaries, and persistence.
 - [Mistral offline transcription](https://docs.mistral.ai/studio-api/audio/speech_to_text/offline_transcription)
 - [Mistral audio transcription endpoint](https://docs.mistral.ai/api/endpoint/audio/transcriptions)
 - [Click documentation](https://click.palletsprojects.com/)
-- [Rich documentation](https://rich.readthedocs.io/)

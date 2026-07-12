@@ -1,19 +1,38 @@
 [project]
 name = "mistral-cli"
-version = "0.2.0"
+version = "0.3.0"
 description = "A modern CLI for Mistral OCR and audio transcription"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Max Boettinger" }]
 requires-python = ">=3.11"
+keywords = ["mistral", "ocr", "transcription", "speech-to-text", "cli", "markdown", "pdf"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Text Processing :: General",
+]
 dependencies = [
     "click>=8.4.2,<9",
     "httpx>=0.28.1,<1",
     "mistralai>=2.5.1,<3",
-    "rich>=15.0.0,<16",
     "tomli-w>=1.2.0,<2",
 ]
 
 [project.scripts]
 mistral = "mistral_cli.cli.main:cli"
+
+[project.urls]
+Repository = "https://github.com/maxboettinger/mistral-cli"
+Issues = "https://github.com/maxboettinger/mistral-cli/issues"
+Changelog = "https://github.com/maxboettinger/mistral-cli/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
@@ -29,6 +48,7 @@ include = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mistral_cli"]
+exclude = ["**/docs.md"]
 
 [dependency-groups]
 dev = [

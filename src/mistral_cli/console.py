@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Generator, Iterable
-from contextlib import contextmanager
+import sys
 from dataclasses import dataclass
-
-from rich.console import Console
-from rich.text import Text
-
-from mistral_cli.errors import format_debug_exception
+from typing import Protocol
 
 _ESC = "\x1b"
 _BEL = "\x07"
@@ -99,59 +94,30 @@ def sanitize_terminal_text(text: str) -> str:
     return "".join(sanitized)
 
 
-def _safe_text(message: str) -> Text:
-    return Text(sanitize_terminal_text(message))
+class TextStream(Protocol):
+    """The minimal writable text stream ConsoleBundle needs."""
+
+    def write(self, text: str, /) -> int: ...
+
+    def flush(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
 class ConsoleBundle:
-    """Application output streams and their safe rendering helpers."""
+    """Application output streams behind sanitizing write helpers."""
 
-    stdout: Console
-    stderr: Console
-
-    def print(self, message: str) -> None:
-        self.stdout.print(_safe_text(message))
+    stdout: TextStream
+    stderr: TextStream
 
     def write_stdout(self, payload: str) -> None:
-        stream = self.stdout.file
-        stream.write(sanitize_terminal_text(payload))
-        stream.flush()
+        self.stdout.write(sanitize_terminal_text(payload))
+        self.stdout.flush()
 
     def write_stderr(self, payload: str) -> None:
-        stream = self.stderr.file
-        stream.write(sanitize_terminal_text(payload))
-        stream.flush()
-
-    def print_status(self, message: str) -> None:
-        self.stderr.print(_safe_text(message))
-
-    def print_error(self, message: str) -> None:
-        self.stderr.print(_safe_text(message))
-
-    @contextmanager
-    def status(self, message: str) -> Generator[None]:
-        with self.stderr.status(_safe_text(message)):
-            yield
-
-    def print_debug_exception(
-        self,
-        error: Exception,
-        *,
-        secrets: Iterable[str] = (),
-        context: str | None = None,
-    ) -> None:
-        formatted = format_debug_exception(
-            error,
-            secrets=secrets,
-            context=context,
-        )
-        self.stderr.print(_safe_text(formatted), end="")
+        self.stderr.write(sanitize_terminal_text(payload))
+        self.stderr.flush()
 
 
 def create_console_bundle() -> ConsoleBundle:
-    """Create consoles using Rich's standard terminal detection."""
-    return ConsoleBundle(
-        stdout=Console(),
-        stderr=Console(stderr=True),
-    )
+    """Create the bundle over the process standard streams."""
+    return ConsoleBundle(stdout=sys.stdout, stderr=sys.stderr)

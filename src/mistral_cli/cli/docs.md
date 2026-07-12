@@ -38,7 +38,13 @@ options, converts sentinel choices (e.g. OCR `--table-format inline` /
 `runner.py` with a `BatchPlan` (operation, request builder, service/store
 factories, markdown formatter), an `OutputOptions`
 (`--format`/`--output-dir`/`--stdout`/`--json`/`--quiet`/`--no-save`/
-`--dry-run`), and a `DedupeOptions` (`--force`, `--dedupe-window`).
+`--dry-run`), and a `DedupeOptions` (`--force`, `--dedupe-window`). Both also
+declare a `--retries N` option (default 3, validated nonnegative) that flows
+into `build_ocr_request`/`build_transcription_request`; the actual retry
+behavior against the API lives in
+[`mistral_client.py`](../mistral_client.py), not here — this layer only
+carries the count through.
+
 `runner.py`'s `_BatchRun` then loops over `SOURCE...` values sequentially:
 
 ```
@@ -75,7 +81,11 @@ never land in process arguments or shell history.
 `candidate_secrets` (gathers env + configured keys to redact), `resolve_api_key`,
 `redact_result` (recursively scrubs an `ApiResult`), `report_error` (translates
 via [`errors.py`](../errors.py) and writes safe output), and `safe_terminal_text`
-(sanitize control sequences + redact).
+(sanitize control sequences + redact). It is also the shared home for small
+Click option validators reused across command modules — `positive_days` and
+`nonnegative_integer` (used by `ocr.py`'s `--image-limit`/`--image-min-size`
+and both commands' `--retries`) — so validation logic for a shared option shape
+lives in one place instead of being duplicated per command.
 
 ### Things to Know
 

@@ -23,6 +23,8 @@ _TABLE_FORMATS: tuple[TableFormat, ...] = ("markdown", "html")
 _CONFIDENCE_VALUES: tuple[Confidence, ...] = ("page", "word")
 _TIMESTAMP_VALUES: tuple[TimestampGranularity, ...] = ("segment", "word")
 
+DEFAULT_RETRIES = 3
+
 
 class SourceKind(StrEnum):
     FILE = "file"
@@ -67,6 +69,7 @@ class OcrRequest:
     image_min_size: int | None = None
     include_blocks: bool = False
     confidence: Confidence | None = None
+    retries: int = DEFAULT_RETRIES
     timeout_ms: int = 300_000
 
 
@@ -79,6 +82,7 @@ class TranscriptionRequest:
     diarize: bool = False
     context_bias: tuple[str, ...] = ()
     timestamps: tuple[TimestampGranularity, ...] = ()
+    retries: int = DEFAULT_RETRIES
     timeout_ms: int = 300_000
 
 
@@ -114,6 +118,7 @@ def ocr_request_metadata(request: OcrRequest) -> dict[str, JSONValue]:
         "image_min_size": request.image_min_size,
         "include_blocks": request.include_blocks,
         "confidence": request.confidence,
+        "retries": request.retries,
         "timeout_ms": request.timeout_ms,
     }
 
@@ -129,6 +134,7 @@ def transcription_request_metadata(
         "diarize": request.diarize,
         "context_bias": list(request.context_bias),
         "timestamps": list(request.timestamps),
+        "retries": request.retries,
         "timeout_ms": request.timeout_ms,
     }
 
@@ -169,6 +175,11 @@ def _validate_nonnegative_option(value: int | None, option: str) -> None:
         raise InputError(f"{option} must be a nonnegative integer.")
 
 
+def _validate_retries(retries: int) -> None:
+    if type(retries) is not int or retries < 0:
+        raise InputError("--retries must be a nonnegative integer.")
+
+
 def _timeout_milliseconds(timeout_seconds: float) -> int:
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise InputError("--timeout must be a finite number greater than zero.")
@@ -191,6 +202,7 @@ def build_ocr_request(
     image_min_size: int | None = None,
     include_blocks: bool = False,
     confidence: Confidence | None = None,
+    retries: int = DEFAULT_RETRIES,
     timeout_seconds: float = 300,
 ) -> OcrRequest:
     _validate_model(model)
@@ -205,6 +217,7 @@ def build_ocr_request(
     _validate_nonnegative_option(image_min_size, "--image-min-size")
     if not include_images and (image_limit is not None or image_min_size is not None):
         raise InputError("--image-limit and --image-min-size require --include-images.")
+    _validate_retries(retries)
 
     return OcrRequest(
         source=source,
@@ -218,6 +231,7 @@ def build_ocr_request(
         image_min_size=image_min_size,
         include_blocks=include_blocks,
         confidence=confidence,
+        retries=retries,
         timeout_ms=_timeout_milliseconds(timeout_seconds),
     )
 
@@ -231,6 +245,7 @@ def build_transcription_request(
     diarize: bool = False,
     context_bias: tuple[str, ...] = (),
     timestamps: tuple[TimestampGranularity, ...] = (),
+    retries: int = DEFAULT_RETRIES,
     timeout_seconds: float = 300,
 ) -> TranscriptionRequest:
     _validate_model(model)
@@ -243,6 +258,7 @@ def build_transcription_request(
         raise InputError("--context-bias accepts at most 100 values.")
     if any(not value.strip() for value in context_bias):
         raise InputError("--context-bias values must not be blank.")
+    _validate_retries(retries)
 
     unique_timestamps: list[TimestampGranularity] = []
     seen_timestamps: set[TimestampGranularity] = set()
@@ -264,5 +280,6 @@ def build_transcription_request(
         diarize=diarize,
         context_bias=context_bias,
         timestamps=tuple(unique_timestamps),
+        retries=retries,
         timeout_ms=_timeout_milliseconds(timeout_seconds),
     )

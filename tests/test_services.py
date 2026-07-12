@@ -108,6 +108,7 @@ def test_ocr_service_calls_gateway_once_and_builds_safe_complete_result() -> Non
         "image_min_size": 12,
         "include_blocks": True,
         "confidence": "page",
+        "retries": 3,
         "timeout_ms": 12_000,
     }
     metadata_text = repr(result.request_metadata)
@@ -153,6 +154,7 @@ def test_transcription_service_calls_gateway_once_and_uses_json_lists() -> None:
         "diarize": True,
         "context_bias": ["Mistral", "Berlin"],
         "timestamps": ["segment", "word"],
+        "retries": 3,
         "timeout_ms": 30_000,
     }
     assert isinstance(result.request_metadata["context_bias"], list)

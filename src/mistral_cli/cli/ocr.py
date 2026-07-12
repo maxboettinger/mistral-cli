@@ -5,11 +5,12 @@ from typing import TYPE_CHECKING, cast
 
 import click
 
-from mistral_cli.cli.common import positive_days
+from mistral_cli.cli.common import nonnegative_integer, positive_days
 from mistral_cli.cli.runner import BatchPlan, DedupeOptions, OutputOptions, run_batch
 from mistral_cli.formatters import format_ocr_markdown
 from mistral_cli.mistral_client import MistralGateway
 from mistral_cli.models import (
+    DEFAULT_RETRIES,
     Confidence,
     OcrRequest,
     Operation,
@@ -34,20 +35,6 @@ def create_gateway(api_key: str) -> OcrGateway:
 def create_result_store() -> ResultStore:
     """Create the production result store."""
     return ResultStore()
-
-
-def _nonnegative_integer(
-    _context: click.Context,
-    parameter: click.Parameter,
-    value: int | None,
-) -> int | None:
-    if value is not None and value < 0:
-        raise click.BadParameter(
-            "must be a nonnegative integer",
-            ctx=_context,
-            param=parameter,
-        )
-    return value
 
 
 @click.command()
@@ -87,13 +74,13 @@ def _nonnegative_integer(
 @click.option(
     "--image-limit",
     type=int,
-    callback=_nonnegative_integer,
+    callback=nonnegative_integer,
     help="Maximum number of images to extract (requires --include-images).",
 )
 @click.option(
     "--image-min-size",
     type=int,
-    callback=_nonnegative_integer,
+    callback=nonnegative_integer,
     help="Minimum extracted image size (requires --include-images).",
 )
 @click.option(
@@ -127,6 +114,17 @@ def _nonnegative_integer(
     default=300.0,
     show_default=True,
     help="Request timeout in seconds.",
+)
+@click.option(
+    "--retries",
+    type=int,
+    default=DEFAULT_RETRIES,
+    show_default=True,
+    callback=nonnegative_integer,
+    help=(
+        "Retry attempts for rate-limited, server-error, and connection "
+        "failures (0 disables)."
+    ),
 )
 @click.option(
     "--stdout",
@@ -186,6 +184,7 @@ def ocr(
     output_dir: Path | None,
     output_format: str,
     timeout: float,
+    retries: int,
     write_stdout: bool,
     write_json: bool,
     quiet: bool,
@@ -214,6 +213,7 @@ def ocr(
             include_blocks=include_blocks,
             confidence=selected_confidence,
             timeout_seconds=timeout,
+            retries=retries,
         )
 
     run_batch(

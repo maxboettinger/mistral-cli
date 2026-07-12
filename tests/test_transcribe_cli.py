@@ -177,6 +177,7 @@ def test_local_audio_defaults_save_both_markdown_and_full_json(
         "diarize": False,
         "context_bias": [],
         "timestamps": [],
+        "retries": 3,
         "timeout_ms": 300000,
     }
     assert cast(dict[str, object], envelope["response"]) == DEFAULT_RESPONSE
@@ -738,6 +739,22 @@ def test_dry_run_json_needs_no_api_key(tmp_path: Path) -> None:
     request = cast("dict[str, JSONValue]", records[0]["request"])
     assert request["model"] == "voxtral-mini-latest"
     assert request["diarize"] is True
+
+
+def test_retries_option_is_passed_through_to_the_request(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_audio(tmp_path)
+
+    result = harness.invoke(
+        "--dry-run", "--json", "--quiet", "--retries", "0", str(source)
+    )
+
+    assert result.exit_code == 0
+    records = parse_ndjson(result.stdout)
+    assert [record["status"] for record in records] == ["dry_run", "summary"]
+    request = cast("dict[str, JSONValue]", records[0]["request"])
+    assert request["retries"] == 0
 
 
 def test_quiet_suppresses_progress_lines(harness: Harness, tmp_path: Path) -> None:

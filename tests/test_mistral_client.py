@@ -9,8 +9,12 @@ from types import TracebackType
 from typing import cast
 
 import pytest
+from mistralai.client.utils.retries import RetryConfig
 
-from mistral_cli.mistral_client import MistralGateway
+from mistral_cli.mistral_client import (
+    MistralGateway,
+    _retry_config,  # pyright: ignore[reportPrivateUsage]
+)
 from mistral_cli.models import (
     InputSource,
     OcrRequest,
@@ -168,6 +172,7 @@ def test_ocr_local_document_maps_all_options_and_converts_response(
         image_min_size=0,
         include_blocks=True,
         confidence="word",
+        retries=0,
         timeout_ms=42_000,
     )
 
@@ -218,6 +223,7 @@ def test_ocr_local_image_uses_image_data_url(tmp_path: Path) -> None:
         OcrRequest(
             source=local_source(path, ocr_kind=OcrSourceKind.IMAGE),
             model="ocr",
+            retries=0,
             timeout_ms=1,
         )
     )
@@ -266,6 +272,7 @@ def test_ocr_url_uses_original_url_and_omits_unset_options(
             ocr_kind=ocr_kind,
         ),
         model="ocr",
+        retries=0,
         timeout_ms=300_000,
     )
 
@@ -313,6 +320,7 @@ def test_local_transcription_stream_is_open_only_during_sdk_call(
         TranscriptionRequest(
             source=local_source(path),
             model="voxtral-mini-latest",
+            retries=0,
             timeout_ms=8_000,
         )
     )
@@ -348,6 +356,7 @@ def test_url_transcription_maps_all_options_including_zero_temperature() -> None
         diarize=True,
         context_bias=("Mistral", "Berlin"),
         timestamps=("segment", "word"),
+        retries=0,
         timeout_ms=9_000,
     )
 
@@ -384,6 +393,7 @@ def test_transcription_omits_false_empty_and_unset_options() -> None:
             diarize=False,
             context_bias=(),
             timestamps=(),
+            retries=0,
             timeout_ms=2,
         )
     )
@@ -490,3 +500,102 @@ def test_installed_sdk_signatures_cover_adapter_contract() -> None:
         "timestamp_granularities",
         "timeout_ms",
     } <= transcription_parameters.keys()
+
+
+def test_ocr_passes_backoff_retry_config_for_positive_retries() -> None:
+    client = FakeClient(response_payload={"pages": []})
+    gateway = MistralGateway("key", client_factory=FakeFactory([client]))
+
+    gateway.ocr(
+        OcrRequest(
+            source=url_source(
+                "https://example.test/report.pdf",
+                filename="report.pdf",
+            ),
+            model="ocr",
+            retries=3,
+        )
+    )
+
+    (call,) = client.ocr.calls
+    config = call["retries"]
+    assert isinstance(config, RetryConfig)
+    assert config.strategy == "backoff"
+    assert config.retry_connection_errors is True
+    # 1s + 2s + 4s of backoff plus 1s jitter allowance per retry = 10s budget
+    assert config.backoff.max_elapsed_time == 10_000
+
+
+def test_ocr_omits_retry_config_when_retries_is_zero() -> None:
+    client = FakeClient(response_payload={"pages": []})
+    gateway = MistralGateway("key", client_factory=FakeFactory([client]))
+
+    gateway.ocr(
+        OcrRequest(
+            source=url_source(
+                "https://example.test/report.pdf",
+                filename="report.pdf",
+            ),
+            model="ocr",
+            retries=0,
+        )
+    )
+
+    (call,) = client.ocr.calls
+    assert "retries" not in call
+
+
+def test_transcribe_passes_backoff_retry_config_for_positive_retries() -> None:
+    client = FakeClient(response_payload={"text": "hello"})
+    gateway = MistralGateway("key", client_factory=FakeFactory([client]))
+
+    gateway.transcribe(
+        TranscriptionRequest(
+            source=url_source(
+                "https://example.test/interview.mp3",
+                filename="interview.mp3",
+            ),
+            model="voxtral",
+            retries=3,
+        )
+    )
+
+    (call,) = client.audio.transcriptions.calls
+    config = call["retries"]
+    assert isinstance(config, RetryConfig)
+    assert config.strategy == "backoff"
+    assert config.retry_connection_errors is True
+    assert config.backoff.max_elapsed_time == 10_000
+
+
+def test_transcribe_omits_retry_config_when_retries_is_zero() -> None:
+    client = FakeClient(response_payload={"text": "hello"})
+    gateway = MistralGateway("key", client_factory=FakeFactory([client]))
+
+    gateway.transcribe(
+        TranscriptionRequest(
+            source=url_source(
+                "https://example.test/interview.mp3",
+                filename="interview.mp3",
+            ),
+            model="voxtral",
+            retries=0,
+        )
+    )
+
+    (call,) = client.audio.transcriptions.calls
+    assert "retries" not in call
+
+
+def test_retry_config_budget_is_finite_for_huge_retry_counts() -> None:
+    config = _retry_config(100_000)
+
+    assert config is not None
+    # Intervals (ms): attempt 0..3 -> 1000, 2000, 4000, 8000 (each below the
+    # 10_000 max, so they contribute interval + 1000 jitter): (1000+1000) +
+    # (2000+1000) + (4000+1000) + (8000+1000) = 19_000. Attempt 4's interval
+    # (16_000) saturates at the 10_000 max, so every remaining attempt
+    # (100_000 - 4 = 99_996 of them) contributes a constant
+    # 10_000 + 1_000 = 11_000.
+    expected = 19_000 + (100_000 - 4) * 11_000
+    assert config.backoff.max_elapsed_time == expected

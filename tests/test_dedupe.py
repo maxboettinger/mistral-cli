@@ -164,6 +164,30 @@ def test_request_fingerprint_changes_when_timestamps_granularity_differs() -> No
     assert request_fingerprint(word_only) != request_fingerprint(both)
 
 
+def test_fingerprint_ignores_retries_and_timeout() -> None:
+    noisy = {"model": "m", "timeout_ms": 1, "retries": 9}
+    quiet = {"model": "m", "timeout_ms": 300_000, "retries": 0}
+
+    assert request_fingerprint(noisy) == request_fingerprint(quiet)
+
+
+def test_fingerprint_matches_entries_written_before_retries_existed() -> None:
+    legacy = {"model": "m", "pages": None}  # metadata shape from mistral-cli <= 0.2.0
+    current = {"model": "m", "pages": None, "retries": 3, "timeout_ms": 300_000}
+
+    assert request_fingerprint(legacy) == request_fingerprint(current)
+
+
+def test_fingerprint_canonicalization_is_frozen() -> None:
+    """Guards the on-disk index format: this hash must never change."""
+    fingerprint = request_fingerprint({"model": "mistral-ocr-latest", "pages": None})
+
+    assert (
+        fingerprint
+        == "db2ef5ae92fdc3ebb908db68e2906daf0ddf9515c6ee18fb51618b6cce08106a"
+    )
+
+
 # --- DedupeIndex.lookup / record ---------------------------------------------
 
 

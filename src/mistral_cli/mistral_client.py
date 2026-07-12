@@ -6,16 +6,10 @@ import mimetypes
 from collections.abc import Callable, Mapping
 from io import BufferedReader
 from types import TracebackType
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import Protocol, cast
 
-if TYPE_CHECKING:
-    from mistralai.client import Mistral
-else:
-    try:
-        from mistralai import Mistral
-    except ImportError:
-        # The 2.5.1 wheel can omit the package-root re-export.
-        from mistralai.client import Mistral
+from mistralai.client import Mistral
+from mistralai.client.utils.retries import BackoffStrategy, RetryConfig
 
 from mistral_cli.models import (
     InputSource,
@@ -106,6 +100,38 @@ def _json_value(value: object) -> JSONValue:
     )
 
 
+_RETRY_INITIAL_INTERVAL_MS = 1_000
+_RETRY_MAX_INTERVAL_MS = 10_000
+_RETRY_EXPONENT = 2.0
+_RETRY_JITTER_ALLOWANCE_MS = 1_000
+
+
+def _retry_config(retries: int) -> RetryConfig | None:
+    """Map a retry attempt count onto the SDK's time-budgeted backoff loop."""
+    if retries <= 0:
+        return None
+    budget_ms = 0
+    for attempt in range(retries):
+        interval = _RETRY_INITIAL_INTERVAL_MS * _RETRY_EXPONENT**attempt
+        if interval >= _RETRY_MAX_INTERVAL_MS:
+            remaining = retries - attempt
+            budget_ms += remaining * (
+                _RETRY_MAX_INTERVAL_MS + _RETRY_JITTER_ALLOWANCE_MS
+            )
+            break
+        budget_ms += int(interval) + _RETRY_JITTER_ALLOWANCE_MS
+    return RetryConfig(
+        strategy="backoff",
+        backoff=BackoffStrategy(
+            initial_interval=_RETRY_INITIAL_INTERVAL_MS,
+            max_interval=_RETRY_MAX_INTERVAL_MS,
+            exponent=_RETRY_EXPONENT,
+            max_elapsed_time=budget_ms,
+        ),
+        retry_connection_errors=True,
+    )
+
+
 def _source_path(source: InputSource) -> BufferedReader:
     if source.kind is not SourceKind.FILE or source.path is None:
         raise ValueError("local source must include a filesystem path")
@@ -165,6 +191,9 @@ class MistralGateway:
             kwargs["include_blocks"] = True
         if request.confidence is not None:
             kwargs["confidence_scores_granularity"] = request.confidence
+        retry_config = _retry_config(request.retries)
+        if retry_config is not None:
+            kwargs["retries"] = retry_config
 
         with self._new_client() as client:
             response = client.ocr.process(**kwargs)
@@ -185,6 +214,9 @@ class MistralGateway:
             kwargs["context_bias"] = list(request.context_bias)
         if request.timestamps:
             kwargs["timestamp_granularities"] = list(request.timestamps)
+        retry_config = _retry_config(request.retries)
+        if retry_config is not None:
+            kwargs["retries"] = retry_config
 
         with self._new_client() as client:
             if request.source.kind is SourceKind.FILE:
