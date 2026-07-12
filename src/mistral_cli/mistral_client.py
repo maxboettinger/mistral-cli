@@ -6,16 +6,9 @@ import mimetypes
 from collections.abc import Callable, Mapping
 from io import BufferedReader
 from types import TracebackType
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import Protocol, cast
 
-if TYPE_CHECKING:
-    from mistralai.client import Mistral
-else:
-    try:
-        from mistralai import Mistral
-    except ImportError:
-        # The 2.5.1 wheel can omit the package-root re-export.
-        from mistralai.client import Mistral
+from mistralai.client import Mistral
 
 from mistral_cli.models import (
     InputSource,
