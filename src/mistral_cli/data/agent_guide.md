@@ -49,7 +49,7 @@ Key `transcribe` options: `--diarize`, `--timestamps segment|word` (repeatable),
 
 Shared options: `--json`, `--stdout`, `--quiet`, `--no-save`, `--dry-run`,
 `--output-dir DIR`, `--format md|json|both` (saved files), `--timeout SECONDS`,
-`--force`, `--dedupe-window DAYS`.
+`--retries N` (default 3; 0 disables), `--force`, `--dedupe-window DAYS`.
 
 ## --json NDJSON contract (stable, schema_version 1)
 
@@ -122,3 +122,7 @@ OCR bills per page: restrict with `--pages`, and avoid `--include-images`,
 `--include-blocks`, `--confidence` unless needed. Validate a batch first
 with `--dry-run --json` (no network, no key; also reports would-be
 duplicate skips).
+
+Transient failures (HTTP 429/5xx, connection errors) are retried with
+exponential backoff (`--retries`, default 3). Retries add latency, never
+cost — a request that never succeeded is not billed.

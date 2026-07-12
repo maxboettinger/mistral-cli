@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, cast
 
 import click
 
-from mistral_cli.cli.common import positive_days
+from mistral_cli.cli.common import nonnegative_integer, positive_days
 from mistral_cli.cli.runner import BatchPlan, DedupeOptions, OutputOptions, run_batch
 from mistral_cli.formatters import format_transcription_markdown
 from mistral_cli.mistral_client import MistralGateway
@@ -92,6 +92,17 @@ def create_result_store() -> ResultStore:
     help="Request timeout in seconds.",
 )
 @click.option(
+    "--retries",
+    type=int,
+    default=3,
+    show_default=True,
+    callback=nonnegative_integer,
+    help=(
+        "Retry attempts for rate-limited, server-error, and connection "
+        "failures (0 disables)."
+    ),
+)
+@click.option(
     "--stdout",
     "write_stdout",
     is_flag=True,
@@ -145,6 +156,7 @@ def transcribe(
     output_dir: Path | None,
     output_format: str,
     timeout: float,
+    retries: int,
     write_stdout: bool,
     write_json: bool,
     quiet: bool,
@@ -166,6 +178,7 @@ def transcribe(
             context_bias=context_bias,
             timestamps=selected_timestamps,
             timeout_seconds=timeout,
+            retries=retries,
         )
 
     run_batch(

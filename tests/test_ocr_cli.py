@@ -1068,6 +1068,24 @@ def test_dry_run_json_emits_request_records(
     assert harness.api_keys == []
 
 
+def test_retries_defaults_to_three_and_is_tunable(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_pdf(tmp_path)
+
+    default_run = harness.invoke("--dry-run", "--json", "--quiet", str(source))
+    tuned_run = harness.invoke(
+        "--dry-run", "--json", "--quiet", "--retries", "0", str(source)
+    )
+    rejected = harness.invoke("--retries", "-1", str(source))
+
+    default_record = json.loads(default_run.stdout.splitlines()[0])
+    tuned_record = json.loads(tuned_run.stdout.splitlines()[0])
+    assert default_record["request"]["retries"] == 3
+    assert tuned_record["request"]["retries"] == 0
+    assert rejected.exit_code == 2
+
+
 def test_dry_run_reports_invalid_sources_and_exits_1(
     harness: Harness,
     tmp_path: Path,

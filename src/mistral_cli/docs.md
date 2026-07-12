@@ -51,8 +51,10 @@ Everything the internal code passes around is defined in
 depend on Click or the SDK. The `build_ocr_request` / `build_transcription_request`
 factories are the single validation gate — normalizing page ranges, enforcing the
 `--language`/`--timestamps` incompatibility, de-duplicating timestamp
-granularities, bounding context-bias, and converting `--timeout` seconds to the
-SDK's `timeout_ms`.
+granularities, bounding context-bias, converting `--timeout` seconds to the
+SDK's `timeout_ms`, and rejecting a negative `retries` (default `DEFAULT_RETRIES
+= 3`). `retries` is echoed into `ocr_request_metadata()`/
+`transcription_request_metadata()` alongside the other saved options.
 
 `sources.py` resolves each raw argument into an `InputSource`: Windows drive
 paths and scheme-less values become local files (validated as readable regular
@@ -65,7 +67,14 @@ per call, and — critically — converts the SDK response into a strict plain-J
 mapping via `model_dump(mode="json", exclude_unset=True)` plus recursive
 validation, so no SDK object ever escapes this module. Local OCR files are
 base64 data URLs; local transcription files are streamed as open binary handles
-with their filename; URL sources use the SDK's `file_url`.
+with their filename; URL sources use the SDK's `file_url`. It is also the only
+place that maps the domain `retries` count onto the SDK's retry behavior:
+`_retry_config()` converts an attempt count into the SDK's time-budgeted
+exponential-backoff `RetryConfig`/`BackoffStrategy` (there's no attempt-count
+knob, only a `max_elapsed_time` budget), returning `None` — and omitting the
+`retries` kwarg entirely — when the request's `retries` is `0`. Retries cover
+HTTP 429/5xx and connection/timeout failures and only add latency: a call that
+never succeeds is never billed.
 
 `formatters.py` deterministically renders `ApiResult` to Markdown (provenance
 header + per-page or per-segment content) and builds the stable JSON envelope
@@ -76,8 +85,9 @@ atomically and collision-safely with UTC-timestamped filenames.
 `dedupe.py` gives each request a content-addressed identity: `content_key()`
 hashes a local file's bytes (`sha256:<hex>`) or keys a URL source by its
 literal value, and `request_fingerprint()` hashes the same
-`*_request_metadata()` used for the JSON envelope (minus `timeout_ms`, with
-`timestamps` order-normalized so flag order never defeats a match).
+`*_request_metadata()` used for the JSON envelope (minus `timeout_ms` and
+`retries`, with `timestamps` order-normalized so flag order never defeats a
+match) — retry count is an execution detail, not part of a request's identity.
 `DedupeIndex.lookup()` / `.record()` read and append the append-only
 `~/.mistral/index.ndjson` that the batch runner in [`cli/`](cli/docs.md) uses
 to skip duplicates and then record new results.
@@ -114,5 +124,9 @@ Several invariants are enforced structurally across this package:
 - **Error translation** in `errors.py` maps SDK/network/HTTP failures to concise
   domain messages (`ApiError`, `ConfigError`, `InputError`, `PersistenceError`)
   without leaking untrusted exception text, unless `--debug` is set.
+- **SDK types stay confined to `mistral_client.py`**: the `retries` field is a
+  plain `int` everywhere else in the codebase (models, services, CLI); only
+  `mistral_client.py` translates it into the SDK's `RetryConfig`/
+  `BackoffStrategy`, matching the rule that `mistralai` is imported nowhere else.
 
 Created and maintained by Nori.

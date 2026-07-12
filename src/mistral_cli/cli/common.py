@@ -34,6 +34,21 @@ def positive_days(
     return value
 
 
+def nonnegative_integer(
+    context: click.Context,
+    parameter: click.Parameter,
+    value: int | None,
+) -> int | None:
+    """Validate an optional nonnegative integer click option."""
+    if value is not None and value < 0:
+        raise click.BadParameter(
+            "must be a nonnegative integer",
+            ctx=context,
+            param=parameter,
+        )
+    return value
+
+
 class CommandConsoles(Protocol):
     def write_stdout(self, payload: str) -> None: ...
 

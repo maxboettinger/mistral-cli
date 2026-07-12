@@ -146,6 +146,7 @@ mistral ocr report.pdf \
 | `--confidence none\|page\|word` | Confidence detail level. |
 | `--model TEXT` | OCR model. Default: `mistral-ocr-latest`. |
 | `--timeout SECONDS` | Positive request timeout. Default: `300`. |
+| `--retries N` | Retry attempts for rate-limited, server-error, and connection failures, with exponential backoff. Default: `3`; `0` disables. |
 
 Some options depend on model capabilities — see the
 [official OCR documentation](https://docs.mistral.ai/studio-api/document-processing/basic_ocr).
@@ -178,6 +179,7 @@ mistral transcribe interview.mp3 \
 | `--timestamps segment\|word` | Repeatable; duplicates ignored. |
 | `--model TEXT` | Transcription model. Default: `voxtral-mini-latest`. |
 | `--timeout SECONDS` | Positive request timeout. Default: `300`. |
+| `--retries N` | Retry attempts for rate-limited, server-error, and connection failures, with exponential backoff. Default: `3`; `0` disables. |
 
 > `--language` and `--timestamps` cannot be combined — the Mistral API does not
 > support that pairing.
