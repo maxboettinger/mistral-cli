@@ -244,3 +244,38 @@ def test_local_unknown_extension_defaults_to_document(tmp_path: Path) -> None:
 
 def test_input_error_is_an_expected_cli_error() -> None:
     assert issubclass(InputError, MistralCliError)
+
+
+def _file_of_size(tmp_path: Path, name: str, size: int) -> Path:
+    path = tmp_path / name
+    with path.open("wb") as handle:
+        if size:
+            handle.seek(size - 1)
+            handle.write(b"\x00")
+    return path
+
+
+def test_local_ocr_source_over_50mb_is_rejected(tmp_path: Path) -> None:
+    limit = 50 * 1024 * 1024
+    path = _file_of_size(tmp_path, "big.pdf", limit + 1)
+
+    with pytest.raises(InputError, match="50 MB"):
+        resolve_source(str(path), Operation.OCR)
+
+
+def test_local_ocr_source_at_exactly_50mb_is_accepted(tmp_path: Path) -> None:
+    limit = 50 * 1024 * 1024
+    path = _file_of_size(tmp_path, "edge.pdf", limit)
+
+    source = resolve_source(str(path), Operation.OCR)
+
+    assert source.filename == "edge.pdf"
+
+
+def test_oversized_audio_source_is_not_size_limited(tmp_path: Path) -> None:
+    limit = 50 * 1024 * 1024
+    path = _file_of_size(tmp_path, "long.mp3", limit + 1)
+
+    source = resolve_source(str(path), Operation.TRANSCRIPTION)
+
+    assert source.filename == "long.mp3"

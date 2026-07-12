@@ -10,6 +10,7 @@ from mistral_cli.models import InputSource, OcrSourceKind, Operation, SourceKind
 
 _WINDOWS_DRIVE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
 _UNSAFE_FILENAME_CHARACTERS = re.compile(r'[\x00-\x1f\x7f-\x9f<>:"/\\|?*]')
+_MAX_INLINE_DOCUMENT_BYTES = 50 * 1024 * 1024
 _IMAGE_URL_SUFFIXES = frozenset(
     {
         ".avif",
@@ -91,7 +92,7 @@ def _resolve_url(
 
 
 def _resolve_local(value: str, purpose: str | Operation) -> InputSource:
-    _is_audio_purpose(purpose)
+    audio = _is_audio_purpose(purpose)
     path = Path(value)
     try:
         path = path.expanduser()
@@ -99,6 +100,14 @@ def _resolve_local(value: str, purpose: str | Operation) -> InputSource:
             raise InputError(f"source path does not exist: {path}")
         if not path.is_file():
             raise InputError(f"source path is not a regular file: {path}")
+        if not audio:
+            size = path.stat().st_size
+            if size > _MAX_INLINE_DOCUMENT_BYTES:
+                raise InputError(
+                    f"source file is {size} bytes; local OCR sources are sent "
+                    "inline as base64 and are limited to 50 MB. Reduce the "
+                    "document or host it at an HTTP(S) URL instead."
+                )
         with path.open("rb"):
             pass
     except InputError:
