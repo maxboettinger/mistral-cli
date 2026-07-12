@@ -1,5 +1,9 @@
 # mistral-cli
 
+[![CI](https://github.com/maxboettinger/mistral-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/maxboettinger/mistral-cli/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 **A modern command-line interface for [Mistral OCR](https://docs.mistral.ai/studio-api/document-processing/basic_ocr) and [Mistral audio transcription](https://docs.mistral.ai/studio-api/audio/speech_to_text/offline_transcription).**
 
 Turn PDFs and images into structured Markdown, and turn audio into text — from
@@ -50,8 +54,8 @@ mistral transcribe interview.mp3
 repository — this tool is not published on PyPI:
 
 ```console
-uv tool install .                        # from inside the repo
-uv tool install ~/github/mistral-cli    # or from anywhere, by path
+git clone https://github.com/maxboettinger/mistral-cli.git
+uv tool install ./mistral-cli
 ```
 
 **Updating** after pulling or editing code: force a rebuild. A plain
@@ -78,7 +82,7 @@ mistral --help        # must show: agent, config, ocr, transcribe
 >
 > ```console
 > uv tool uninstall mistral               # or: pipx uninstall mistral
-> uv tool install ~/github/mistral-cli
+> uv tool install ./mistral-cli
 > ```
 
 **2. Store your API key** (hidden, confirmed prompt):
@@ -120,7 +124,8 @@ mistral ocr https://example.com/report.pdf
 ```
 
 > Public URLs must be directly reachable by Mistral. Local files are read and
-> sent as base64 data URLs.
+> sent as base64 data URLs. Local files are limited to 50 MB (they are sent
+> inline as base64); larger documents should be hosted at a URL.
 
 Common options:
 
@@ -338,6 +343,17 @@ Select a different file with the root `--config` option:
 mistral --config ./private-config.toml config set api-key
 ```
 
+### Shell completion
+
+Click provides tab completion for commands and options. Add the line for
+your shell to its startup file:
+
+```console
+eval "$(_MISTRAL_COMPLETE=zsh_source mistral)"     # ~/.zshrc
+eval "$(_MISTRAL_COMPLETE=bash_source mistral)"    # ~/.bashrc
+_MISTRAL_COMPLETE=fish_source mistral | source     # ~/.config/fish/config.fish
+```
+
 ---
 
 ## Errors, debugging & security
@@ -349,6 +365,10 @@ the command to include diagnostic tracebacks:
 ```console
 mistral --debug transcribe interview.mp3
 ```
+
+Transient failures — HTTP 429 rate limits, 5xx server errors, dropped
+connections — are retried automatically with exponential backoff
+(`--retries`, default 3). A request that never succeeded is never billed.
 
 Security properties:
 
@@ -388,7 +408,7 @@ domain models, use cases, and the SDK adapter:
 
 | Module | Responsibility |
 | --- | --- |
-| `cli/` | Click commands, validation flow, and Rich console reporting. |
+| `cli/` | Click commands, validation flow, and sanitized console reporting. |
 | `models.py` | SDK-independent request and result types. |
 | `services/` | OCR and transcription use cases behind gateway protocols. |
 | `mistral_client.py` | Adapter for the official Mistral Python SDK. |
@@ -404,6 +424,8 @@ the use case through a gateway protocol → **mistral_client** calls the SDK →
 behind fakes and cover command behavior, mapping, formatting, configuration,
 security boundaries, and persistence.
 
+See [CHANGELOG.md](CHANGELOG.md) for release history.
+
 ---
 
 ## References
@@ -412,4 +434,3 @@ security boundaries, and persistence.
 - [Mistral offline transcription](https://docs.mistral.ai/studio-api/audio/speech_to_text/offline_transcription)
 - [Mistral audio transcription endpoint](https://docs.mistral.ai/api/endpoint/audio/transcriptions)
 - [Click documentation](https://click.palletsprojects.com/)
-- [Rich documentation](https://rich.readthedocs.io/)
