@@ -58,9 +58,10 @@ def content_key(source: InputSource) -> str:
 
 
 def request_fingerprint(metadata: JSONMapping) -> str:
-    """Return the identity key for a request's metadata, ignoring timeout_ms."""
+    """Return the identity key for a request's metadata, ignoring timeout_ms/retries."""
     payload = dict(metadata)
     payload.pop("timeout_ms", None)
+    payload.pop("retries", None)
     # Timestamp granularities are order-insensitive; canonicalize them so CLI
     # flag order never defeats deduplication.
     timestamps = payload.get("timestamps")

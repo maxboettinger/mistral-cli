@@ -177,6 +177,7 @@ def test_local_audio_defaults_save_both_markdown_and_full_json(
         "diarize": False,
         "context_bias": [],
         "timestamps": [],
+        "retries": 3,
         "timeout_ms": 300000,
     }
     assert cast(dict[str, object], envelope["response"]) == DEFAULT_RESPONSE
