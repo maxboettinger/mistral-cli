@@ -1,5 +1,8 @@
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 
-__version__ = version("mistral-cli")
+try:
+    __version__ = version("mistral-cli")
+except PackageNotFoundError:  # e.g. vendored source tree without installation
+    __version__ = "0.0.0+unknown"
 
 __all__ = ["__version__"]
