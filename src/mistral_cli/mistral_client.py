@@ -113,8 +113,13 @@ def _retry_config(retries: int) -> RetryConfig | None:
     budget_ms = 0
     for attempt in range(retries):
         interval = _RETRY_INITIAL_INTERVAL_MS * _RETRY_EXPONENT**attempt
-        budget_ms += min(int(interval), _RETRY_MAX_INTERVAL_MS)
-        budget_ms += _RETRY_JITTER_ALLOWANCE_MS
+        if interval >= _RETRY_MAX_INTERVAL_MS:
+            remaining = retries - attempt
+            budget_ms += remaining * (
+                _RETRY_MAX_INTERVAL_MS + _RETRY_JITTER_ALLOWANCE_MS
+            )
+            break
+        budget_ms += int(interval) + _RETRY_JITTER_ALLOWANCE_MS
     return RetryConfig(
         strategy="backoff",
         backoff=BackoffStrategy(

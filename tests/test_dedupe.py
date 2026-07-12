@@ -178,6 +178,16 @@ def test_fingerprint_matches_entries_written_before_retries_existed() -> None:
     assert request_fingerprint(legacy) == request_fingerprint(current)
 
 
+def test_fingerprint_canonicalization_is_frozen() -> None:
+    """Guards the on-disk index format: this hash must never change."""
+    fingerprint = request_fingerprint({"model": "mistral-ocr-latest", "pages": None})
+
+    assert (
+        fingerprint
+        == "db2ef5ae92fdc3ebb908db68e2906daf0ddf9515c6ee18fb51618b6cce08106a"
+    )
+
+
 # --- DedupeIndex.lookup / record ---------------------------------------------
 
 

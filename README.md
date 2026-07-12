@@ -366,9 +366,11 @@ the command to include diagnostic tracebacks:
 mistral --debug transcribe interview.mp3
 ```
 
-Transient failures — HTTP 429 rate limits, 5xx server errors, dropped
-connections — are retried automatically with exponential backoff
-(`--retries`, default 3). A request that never succeeded is never billed.
+Transient failures that fail fast — HTTP 429 rate limits, 5xx server errors,
+refused connections — are retried automatically with exponential backoff
+(`--retries`, default 3). Requests that fail slowly (e.g. timeouts) exhaust
+the retry budget and are not retried. A request that never succeeded is
+never billed.
 
 Security properties:
 

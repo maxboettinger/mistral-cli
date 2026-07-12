@@ -741,6 +741,22 @@ def test_dry_run_json_needs_no_api_key(tmp_path: Path) -> None:
     assert request["diarize"] is True
 
 
+def test_retries_option_is_passed_through_to_the_request(
+    harness: Harness, tmp_path: Path
+) -> None:
+    source = make_audio(tmp_path)
+
+    result = harness.invoke(
+        "--dry-run", "--json", "--quiet", "--retries", "0", str(source)
+    )
+
+    assert result.exit_code == 0
+    records = parse_ndjson(result.stdout)
+    assert [record["status"] for record in records] == ["dry_run", "summary"]
+    request = cast("dict[str, JSONValue]", records[0]["request"])
+    assert request["retries"] == 0
+
+
 def test_quiet_suppresses_progress_lines(harness: Harness, tmp_path: Path) -> None:
     source = make_audio(tmp_path)
 

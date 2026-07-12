@@ -123,6 +123,7 @@ OCR bills per page: restrict with `--pages`, and avoid `--include-images`,
 with `--dry-run --json` (no network, no key; also reports would-be
 duplicate skips).
 
-Transient failures (HTTP 429/5xx, connection errors) are retried with
-exponential backoff (`--retries`, default 3). Retries add latency, never
-cost — a request that never succeeded is not billed.
+Transient failures that fail fast (HTTP 429/5xx, refused connections) are
+retried with exponential backoff (`--retries`, default 3). Slow failures
+(e.g. timeouts) exhaust the retry budget and are not retried — but a
+request that never succeeded is never billed.

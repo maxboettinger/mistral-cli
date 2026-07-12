@@ -11,7 +11,10 @@ from typing import cast
 import pytest
 from mistralai.client.utils.retries import RetryConfig
 
-from mistral_cli.mistral_client import MistralGateway
+from mistral_cli.mistral_client import (
+    MistralGateway,
+    _retry_config,  # pyright: ignore[reportPrivateUsage]
+)
 from mistral_cli.models import (
     InputSource,
     OcrRequest,
@@ -582,3 +585,17 @@ def test_transcribe_omits_retry_config_when_retries_is_zero() -> None:
 
     (call,) = client.audio.transcriptions.calls
     assert "retries" not in call
+
+
+def test_retry_config_budget_is_finite_for_huge_retry_counts() -> None:
+    config = _retry_config(100_000)
+
+    assert config is not None
+    # Intervals (ms): attempt 0..3 -> 1000, 2000, 4000, 8000 (each below the
+    # 10_000 max, so they contribute interval + 1000 jitter): (1000+1000) +
+    # (2000+1000) + (4000+1000) + (8000+1000) = 19_000. Attempt 4's interval
+    # (16_000) saturates at the 10_000 max, so every remaining attempt
+    # (100_000 - 4 = 99_996 of them) contributes a constant
+    # 10_000 + 1_000 = 11_000.
+    expected = 19_000 + (100_000 - 4) * 11_000
+    assert config.backoff.max_elapsed_time == expected

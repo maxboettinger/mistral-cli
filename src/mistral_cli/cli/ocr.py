@@ -10,6 +10,7 @@ from mistral_cli.cli.runner import BatchPlan, DedupeOptions, OutputOptions, run_
 from mistral_cli.formatters import format_ocr_markdown
 from mistral_cli.mistral_client import MistralGateway
 from mistral_cli.models import (
+    DEFAULT_RETRIES,
     Confidence,
     OcrRequest,
     Operation,
@@ -117,7 +118,7 @@ def create_result_store() -> ResultStore:
 @click.option(
     "--retries",
     type=int,
-    default=3,
+    default=DEFAULT_RETRIES,
     show_default=True,
     callback=nonnegative_integer,
     help=(
