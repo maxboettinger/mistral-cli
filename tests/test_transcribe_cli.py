@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -1051,7 +1052,7 @@ def test_no_save_records_nothing_in_the_index(harness: Harness, tmp_path: Path) 
 def test_unreadable_stored_markdown_falls_through_to_processing(
     harness: Harness, tmp_path: Path
 ) -> None:
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
+    if sys.platform != "win32" and os.geteuid() == 0:
         pytest.skip("root ignores file permission bits")
     source = make_audio(tmp_path)
     harness.invoke(str(source), "--stdout")
