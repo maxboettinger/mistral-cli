@@ -8,10 +8,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- PyPI publication as [`moxtral`](https://pypi.org/project/moxtral/), with an
-  automated release workflow: pushing a `v*` tag runs the full CI matrix,
-  verifies the tag against `pyproject.toml`, publishes to PyPI via Trusted
-  Publishing (OIDC), and creates a GitHub release with the built artifacts.
+- PyPI publication as [`moxtral`](https://pypi.org/project/moxtral/), with a
+  fully automated release workflow: pushing a version bump to `main` runs the
+  full CI matrix, publishes to PyPI via Trusted Publishing (OIDC), then tags
+  the commit and creates a GitHub release with the built artifacts.
 
 ### Changed (breaking)
 
