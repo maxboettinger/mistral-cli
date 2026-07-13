@@ -11,7 +11,7 @@ from typing import Protocol, cast
 from mistralai.client import Mistral
 from mistralai.client.utils.retries import BackoffStrategy, RetryConfig
 
-from mistral_cli.models import (
+from moxtral.models import (
     InputSource,
     JSONMapping,
     JSONValue,

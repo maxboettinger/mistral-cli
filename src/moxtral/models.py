@@ -9,7 +9,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Literal, TypeAlias
 
-from mistral_cli.errors import InputError
+from moxtral.errors import InputError
 
 TableFormat: TypeAlias = Literal["markdown", "html"]
 Confidence: TypeAlias = Literal["page", "word"]

@@ -5,8 +5,8 @@ from typing import cast
 
 from click.testing import CliRunner
 
-from mistral_cli.cli.main import cli
-from mistral_cli.models import JSONValue
+from moxtral.cli.main import cli
+from moxtral.models import JSONValue
 
 
 def test_agent_prints_usage_guide() -> None:

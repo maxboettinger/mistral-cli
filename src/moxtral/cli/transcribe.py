@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING, cast
 
 import click
 
-from mistral_cli.cli.common import nonnegative_integer, positive_days
-from mistral_cli.cli.runner import BatchPlan, DedupeOptions, OutputOptions, run_batch
-from mistral_cli.formatters import format_transcription_markdown
-from mistral_cli.mistral_client import MistralGateway
-from mistral_cli.models import (
+from moxtral.cli.common import nonnegative_integer, positive_days
+from moxtral.cli.runner import BatchPlan, DedupeOptions, OutputOptions, run_batch
+from moxtral.formatters import format_transcription_markdown
+from moxtral.mistral_client import MistralGateway
+from moxtral.models import (
     DEFAULT_RETRIES,
     Operation,
     OutputFormat,
@@ -18,15 +18,15 @@ from mistral_cli.models import (
     build_transcription_request,
     transcription_request_metadata,
 )
-from mistral_cli.services.transcription import (
+from moxtral.services.transcription import (
     TranscriptionGateway,
     TranscriptionService,
 )
-from mistral_cli.sources import resolve_source
-from mistral_cli.storage import ResultStore
+from moxtral.sources import resolve_source
+from moxtral.storage import ResultStore
 
 if TYPE_CHECKING:
-    from mistral_cli.cli.main import AppContext
+    from moxtral.cli.main import AppContext
 
 
 def create_gateway(api_key: str) -> TranscriptionGateway:

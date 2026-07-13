@@ -1,15 +1,15 @@
-# Noridoc: mistral_cli
+# Noridoc: moxtral
 
-Path: @/src/mistral_cli
+Path: @/src/moxtral
 
 ### Overview
 
 The complete implementation of `mistral-cli`, a Python 3.11+ command-line tool
 that wraps the Mistral API for two use cases — OCR (document/image text
 extraction) and audio transcription. It is distributed as the `mistral` console
-command whose entry point is `mistral_cli.cli.main:cli` (see
+command whose entry point is `moxtral.cli.main:cli` (see
 [`pyproject.toml`](../../pyproject.toml)). `__main__.py` provides the same entry
-via `python -m mistral_cli`, and `__init__.py` exposes `__version__` resolved
+via `python -m moxtral`, and `__init__.py` exposes `__version__` resolved
 from installed package metadata.
 
 ### How it fits into the larger codebase

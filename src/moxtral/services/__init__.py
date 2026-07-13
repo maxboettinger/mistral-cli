@@ -1,7 +1,7 @@
 """Use-case services."""
 
-from mistral_cli.services.ocr import OcrGateway, OcrService
-from mistral_cli.services.transcription import (
+from moxtral.services.ocr import OcrGateway, OcrService
+from moxtral.services.transcription import (
     TranscriptionGateway,
     TranscriptionService,
 )

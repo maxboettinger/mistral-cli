@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mistral_cli.models import JSONValue
+from moxtral.models import JSONValue
 
 
 def _nullable_string() -> dict[str, JSONValue]:

@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from mistral_cli import storage
-from mistral_cli.errors import PersistenceError
-from mistral_cli.models import (
+from moxtral import storage
+from moxtral.errors import PersistenceError
+from moxtral.models import (
     ApiResult,
     InputSource,
     JSONMapping,
@@ -15,7 +15,7 @@ from mistral_cli.models import (
     OutputFormat,
     SourceKind,
 )
-from mistral_cli.storage import ResultStore
+from moxtral.storage import ResultStore
 
 
 def fixed_clock() -> datetime:

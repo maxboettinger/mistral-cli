@@ -5,8 +5,8 @@ import re
 from pathlib import Path
 from urllib.parse import SplitResult, unquote, urlsplit
 
-from mistral_cli.errors import InputError
-from mistral_cli.models import InputSource, OcrSourceKind, Operation, SourceKind
+from moxtral.errors import InputError
+from moxtral.models import InputSource, OcrSourceKind, Operation, SourceKind
 
 _WINDOWS_DRIVE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
 _UNSAFE_FILENAME_CHARACTERS = re.compile(r'[\x00-\x1f\x7f-\x9f<>:"/\\|?*]')

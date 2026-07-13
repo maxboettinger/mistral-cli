@@ -5,12 +5,12 @@ from pathlib import Path
 
 import click
 
-from mistral_cli import __version__
-from mistral_cli.cli.agent import agent
-from mistral_cli.cli.config import config
-from mistral_cli.cli.ocr import ocr
-from mistral_cli.cli.transcribe import transcribe
-from mistral_cli.console import ConsoleBundle, create_console_bundle
+from moxtral import __version__
+from moxtral.cli.agent import agent
+from moxtral.cli.config import config
+from moxtral.cli.ocr import ocr
+from moxtral.cli.transcribe import transcribe
+from moxtral.console import ConsoleBundle, create_console_bundle
 
 DEFAULT_CONFIG_PATH = Path("~/.mistral/config.toml").expanduser()
 

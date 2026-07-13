@@ -6,15 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from mistral_cli.cli.common import (
+from moxtral.cli.common import (
     candidate_secrets,
     redact_result,
     report_error,
     safe_terminal_text,
 )
-from mistral_cli.config import ConfigStore
-from mistral_cli.errors import ConfigError
-from mistral_cli.models import ApiResult, InputSource, Operation, SourceKind
+from moxtral.config import ConfigStore
+from moxtral.errors import ConfigError
+from moxtral.models import ApiResult, InputSource, Operation, SourceKind
 
 
 def empty_strings() -> list[str]:

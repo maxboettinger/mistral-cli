@@ -1,6 +1,6 @@
 # Noridoc: services
 
-Path: @/src/mistral_cli/services
+Path: @/src/moxtral/services
 
 ### Overview
 

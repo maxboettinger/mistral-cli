@@ -3,9 +3,9 @@ from unittest.mock import patch
 
 import pytest
 
-from mistral_cli.errors import InputError, MistralCliError
-from mistral_cli.models import OcrSourceKind, Operation, SourceKind
-from mistral_cli.sources import resolve_source
+from moxtral.errors import InputError, MistralCliError
+from moxtral.models import OcrSourceKind, Operation, SourceKind
+from moxtral.sources import resolve_source
 
 
 def test_readable_local_file_is_expanded_and_preserves_path(tmp_path: Path) -> None:

@@ -9,12 +9,12 @@ from typing import cast
 import pytest
 from click.testing import CliRunner, Result
 
-import mistral_cli.cli.ocr as ocr_cli
-from mistral_cli.cli.main import cli
-from mistral_cli.config import ConfigStore
-from mistral_cli.errors import ConfigError
-from mistral_cli.models import JSONMapping, JSONValue, OcrRequest
-from mistral_cli.storage import ResultStore
+import moxtral.cli.ocr as ocr_cli
+from moxtral.cli.main import cli
+from moxtral.config import ConfigStore
+from moxtral.errors import ConfigError
+from moxtral.models import JSONMapping, JSONValue, OcrRequest
+from moxtral.storage import ResultStore
 
 SAVE_TIME = datetime(2025, 1, 2, 3, 4, 5, 678901, tzinfo=UTC)
 SAVE_STAMP = "20250102T030405.678901Z"

@@ -1,11 +1,11 @@
 # Noridoc: cli
 
-Path: @/src/mistral_cli/cli
+Path: @/src/moxtral/cli
 
 ### Overview
 
 The Click command layer and the outermost entry point of the `mistral` console
-script (`mistral_cli.cli.main:cli`). It defines the root group plus the `ocr`,
+script (`moxtral.cli.main:cli`). It defines the root group plus the `ocr`,
 `transcribe`, and `config` commands, wires together sources, services, gateways,
 and storage for each source, and owns all user-facing terminal output and its
 secret-redaction boundary.

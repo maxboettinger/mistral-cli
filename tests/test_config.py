@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from mistral_cli.config import AppConfig, ConfigStore
-from mistral_cli.errors import ConfigError
+from moxtral.config import AppConfig, ConfigStore
+from moxtral.errors import ConfigError
 
 
 def test_app_config_is_immutable_and_uses_defaults() -> None:

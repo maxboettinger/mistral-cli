@@ -6,17 +6,17 @@ from typing import TYPE_CHECKING, NoReturn, cast
 import click
 import tomli_w
 
-from mistral_cli.cli.common import (
+from moxtral.cli.common import (
     candidate_secrets,
     extend_secrets,
     safe_terminal_text,
     write_debug_exception,
 )
-from mistral_cli.config import ConfigStore
-from mistral_cli.errors import ConfigError
+from moxtral.config import ConfigStore
+from moxtral.errors import ConfigError
 
 if TYPE_CHECKING:
-    from mistral_cli.cli.main import AppContext
+    from moxtral.cli.main import AppContext
 
 
 @click.group()

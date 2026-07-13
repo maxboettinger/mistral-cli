@@ -11,11 +11,11 @@ from typing import cast
 import pytest
 from click.testing import CliRunner, Result
 
-from mistral_cli.cli.main import cli
-from mistral_cli.config import ConfigStore
-from mistral_cli.errors import ConfigError
-from mistral_cli.models import JSONMapping, JSONValue, TranscriptionRequest
-from mistral_cli.storage import ResultStore
+from moxtral.cli.main import cli
+from moxtral.config import ConfigStore
+from moxtral.errors import ConfigError
+from moxtral.models import JSONMapping, JSONValue, TranscriptionRequest
+from moxtral.storage import ResultStore
 
 SAVE_TIME = datetime(2025, 1, 2, 3, 4, 5, 678901, tzinfo=UTC)
 SAVE_STAMP = "20250102T030405.678901Z"
@@ -80,7 +80,7 @@ class Harness:
 
 @pytest.fixture
 def harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Harness:
-    import mistral_cli.cli.transcribe as transcribe_cli
+    import moxtral.cli.transcribe as transcribe_cli
 
     config_path = tmp_path / "config.toml"
     ConfigStore(config_path).set("api-key", "config-secret")
@@ -334,7 +334,7 @@ def test_invalid_source_precedes_missing_key_and_malformed_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import mistral_cli.cli.transcribe as transcribe_cli
+    import moxtral.cli.transcribe as transcribe_cli
 
     config_path = tmp_path / "bad.toml"
     config_path.write_text("api_key = [", encoding="utf-8")

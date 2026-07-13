@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import cast
 
-from mistral_cli.formatters import (
+from moxtral.formatters import (
     build_dry_run_record,
     build_error_record,
     build_existing_result,
@@ -12,8 +12,8 @@ from mistral_cli.formatters import (
     build_skipped_record,
     build_summary_record,
 )
-from mistral_cli.models import JSONValue
-from mistral_cli.schema import record_schema
+from moxtral.models import JSONValue
+from moxtral.schema import record_schema
 
 _SAMPLE_ENVELOPE: dict[str, JSONValue] = {
     "schema_version": 1,

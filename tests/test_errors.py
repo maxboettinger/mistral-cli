@@ -5,8 +5,8 @@ from collections.abc import Iterator
 import httpx
 import pytest
 
-from mistral_cli import errors as errors_module
-from mistral_cli.errors import (
+from moxtral import errors as errors_module
+from moxtral.errors import (
     ApiError,
     ConfigError,
     MistralCliError,

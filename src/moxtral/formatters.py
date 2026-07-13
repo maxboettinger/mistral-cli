@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import cast
 
-from mistral_cli.models import ApiResult, JSONMapping, JSONValue
+from moxtral.models import ApiResult, JSONMapping, JSONValue
 
 _TIMESTAMP_SEPARATOR = "\N{EN DASH}"
 
