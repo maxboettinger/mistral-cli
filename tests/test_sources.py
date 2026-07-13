@@ -27,6 +27,7 @@ def test_local_tilde_is_expanded(
     path = tmp_path / "document.pdf"
     path.write_bytes(b"document")
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
     source = resolve_source("~/document.pdf", Operation.OCR)
 
