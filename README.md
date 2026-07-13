@@ -1,10 +1,16 @@
-# mistral-cli
+# moxtral
 
-[![CI](https://github.com/maxboettinger/mistral-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/maxboettinger/mistral-cli/actions/workflows/ci.yml)
+[![CI](https://github.com/maxboettinger/moxtral/actions/workflows/ci.yml/badge.svg)](https://github.com/maxboettinger/moxtral/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**A modern command-line interface for [Mistral OCR](https://docs.mistral.ai/studio-api/document-processing/basic_ocr) and [Mistral audio transcription](https://docs.mistral.ai/studio-api/audio/speech_to_text/offline_transcription).**
+**A modern command-line interface for [Mistral OCR](https://docs.mistral.ai/studio-api/document-processing/basic_ocr) and [Voxtral audio transcription](https://docs.mistral.ai/studio-api/audio/speech_to_text/offline_transcription).**
+
+> **Powered by [Mistral AI](https://mistral.ai)** — moxtral is an independent,
+> open-source CLI built on the official Mistral AI platform APIs (Mistral OCR
+> for documents, Voxtral for audio). It is **not affiliated with, endorsed by,
+> or sponsored by Mistral AI.** See
+> [About the name & trademarks](#about-the-name--trademarks).
 
 Turn PDFs and images into structured Markdown, and turn audio into text — from
 your terminal, in one command. Point it at a local file or a public URL; it
@@ -12,8 +18,8 @@ saves durable Markdown and JSON, processes batches, and keeps progress output
 cleanly separated from pipe-friendly results.
 
 ```console
-mistral ocr report.pdf
-mistral transcribe interview.mp3
+moxtral ocr report.pdf
+moxtral transcribe interview.mp3
 ```
 
 ---
@@ -21,7 +27,7 @@ mistral transcribe interview.mp3
 ## Highlights
 
 - **Two capabilities, one tool** — document OCR and speech-to-text behind a
-  single `mistral` command.
+  single `moxtral` command.
 - **Local files or public URLs** — local files are read and sent as base64 data
   URLs; public HTTP(S) URLs are passed through.
 - **Durable results** — every run saves timestamped Markdown and a stable JSON
@@ -34,7 +40,7 @@ mistral transcribe interview.mp3
 - **Pipe-clean output** — Markdown goes to stdout on request; progress, paths,
   and errors stay on stderr.
 - **Agent-ready** — `--json` streams stable NDJSON records for machine
-  consumption, exit codes are documented and stable, and `mistral agent`
+  consumption, exit codes are documented and stable, and `moxtral agent`
   prints a compact usage guide and output schema for LLM agents.
 - **Secure by default** — API keys are never passed as CLI arguments, are
   redacted from all output (including tracebacks), and are stored with
@@ -54,8 +60,8 @@ mistral transcribe interview.mp3
 repository — this tool is not published on PyPI:
 
 ```console
-git clone https://github.com/maxboettinger/mistral-cli.git
-uv tool install ./mistral-cli
+git clone https://github.com/maxboettinger/moxtral.git
+uv tool install ./moxtral
 ```
 
 **Updating** after pulling or editing code: force a rebuild. A plain
@@ -69,43 +75,36 @@ uv tool install --reinstall --force .
 Then verify you are running this tool and that it picked up the new code:
 
 ```console
-uv tool list          # the `mistral` executable must be listed under `mistral-cli`
-mistral --help        # must show: agent, config, ocr, transcribe
+uv tool list          # the `moxtral` executable must be listed under `moxtral`
+moxtral --help        # must show: agent, config, ocr, transcribe
 ```
 
-> **Warning:** never `uv tool install mistral` or `pipx install mistral`.
-> The PyPI package named `mistral` is OpenStack Mistral (a workflow
-> service unrelated to Mistral AI), and it installs a binary with the
-> *same name*, silently shadowing this CLI. There is no `mistral-cli`
-> package on PyPI either — the only install source is this repository.
-> If you installed the wrong package, recover with:
->
-> ```console
-> uv tool uninstall mistral               # or: pipx uninstall mistral
-> uv tool install ./mistral-cli
-> ```
+> **Note:** this tool is not published on PyPI — the only install source is
+> this repository. Don't confuse it with the PyPI package named `mistral`
+> (OpenStack Mistral, a workflow service unrelated to Mistral AI) or with
+> Mistral AI's own coding-agent CLI (`vibe`).
 
 **2. Store your API key** (hidden, confirmed prompt):
 
 ```console
-mistral config set api-key
+moxtral config set api-key
 ```
 
 **3. Run it:**
 
 ```console
 # Extract text from a PDF or image
-mistral ocr report.pdf
+moxtral ocr report.pdf
 
 # Transcribe audio
-mistral transcribe interview.mp3
+moxtral transcribe interview.mp3
 ```
 
-Results are saved to `~/.mistral/ocr/` and `~/.mistral/transcriptions/` as both
+Results are saved to `~/.moxtral/ocr/` and `~/.moxtral/transcriptions/` as both
 Markdown and JSON. Add `--stdout` to also print the Markdown for piping:
 
 ```console
-mistral ocr report.pdf --stdout | glow -
+moxtral ocr report.pdf --stdout | glow -
 ```
 
 That's the whole loop. The sections below add detail as you need it.
@@ -119,8 +118,8 @@ That's the whole loop. The sections below add detail as you need it.
 Process a local PDF or image, or a publicly accessible URL:
 
 ```console
-mistral ocr report.pdf
-mistral ocr https://example.com/report.pdf
+moxtral ocr report.pdf
+moxtral ocr https://example.com/report.pdf
 ```
 
 > Public URLs must be directly reachable by Mistral. Local files are read and
@@ -130,7 +129,7 @@ mistral ocr https://example.com/report.pdf
 Common options:
 
 ```console
-mistral ocr report.pdf \
+moxtral ocr report.pdf \
   --pages 0,2-4 \
   --table-format markdown \
   --extract-header \
@@ -161,14 +160,14 @@ Some options depend on model capabilities — see the
 Transcribe a local audio file or a public audio URL:
 
 ```console
-mistral transcribe interview.mp3
-mistral transcribe https://example.com/interview.mp3
+moxtral transcribe interview.mp3
+moxtral transcribe https://example.com/interview.mp3
 ```
 
 Request speaker labels, contextual hints, and timestamps:
 
 ```console
-mistral transcribe interview.mp3 \
+moxtral transcribe interview.mp3 \
   --temperature 0.2 \
   --diarize \
   --context-bias Mistral --context-bias Voxtral \
@@ -211,9 +210,9 @@ Both commands share these output options:
 timestamp followed by the original source filename:
 
 ```text
-~/.mistral/ocr/20260703T121314.123456Z-report.pdf.md
-~/.mistral/ocr/20260703T121314.123456Z-report.pdf.json
-~/.mistral/transcriptions/...
+~/.moxtral/ocr/20260703T121314.123456Z-report.pdf.md
+~/.moxtral/ocr/20260703T121314.123456Z-report.pdf.json
+~/.moxtral/transcriptions/...
 ```
 
 - **Markdown** contains provenance and readable page or transcript content.
@@ -224,8 +223,8 @@ timestamp followed by the original source filename:
 sequentially:
 
 ```console
-mistral ocr chapter-1.pdf chapter-2.pdf https://example.com/appendix.pdf
-mistral transcribe part-1.mp3 part-2.mp3
+moxtral ocr chapter-1.pdf chapter-2.pdf https://example.com/appendix.pdf
+moxtral transcribe part-1.mp3 part-2.mp3
 ```
 
 A failure for one source does not discard successful results or stop later
@@ -257,7 +256,7 @@ check for free and reports what it *would* skip. Duplicate checks need no API
 key, so a run where every source is a duplicate exits `0` without ever
 resolving a key.
 
-The index lives at `~/.mistral/index.ndjson` (created automatically, `0600`,
+The index lives at `~/.moxtral/index.ndjson` (created automatically, `0600`,
 best-effort — a read/write problem falls back to processing normally with a
 warning) and is never written to with `--no-save`.
 
@@ -276,7 +275,7 @@ ASCII-encoded, so it is immune to terminal-control injection and always
 parses:
 
 ```console
-mistral ocr --json --quiet report.pdf \
+moxtral ocr --json --quiet report.pdf \
   | jq -r 'select(.status=="ok") | .envelope.response.pages[].markdown'
 ```
 
@@ -289,8 +288,8 @@ Exit codes are part of the stable contract:
 | `2` | Usage error (bad flags or flag combination). |
 | `3` | Setup failure (missing API key, unreadable config). |
 
-For LLM agents and other tooling, `mistral agent` prints a compact usage guide
-and `mistral agent --schema` prints the JSON Schema for the NDJSON records.
+For LLM agents and other tooling, `moxtral agent` prints a compact usage guide
+and `moxtral agent --schema` prints the JSON Schema for the NDJSON records.
 Use `--dry-run --json` to validate a batch without an API key or network
 calls — it also reports sources that would be skipped as duplicates.
 
@@ -305,34 +304,34 @@ The key is resolved from `MISTRAL_API_KEY` first, then the stored config.
 Store it via a hidden, confirmed prompt:
 
 ```console
-mistral config set api-key
+moxtral config set api-key
 ```
 
 For automation, pass a single line over stdin (no echo, not in the arg list):
 
 ```console
 read -r -s MISTRAL_KEY
-printf '%s\n' "$MISTRAL_KEY" | mistral config set api-key --stdin
+printf '%s\n' "$MISTRAL_KEY" | moxtral config set api-key --stdin
 unset MISTRAL_KEY
 ```
 
 Or override per-invocation with the environment variable:
 
 ```console
-MISTRAL_API_KEY="..." mistral ocr report.pdf
+MISTRAL_API_KEY="..." moxtral ocr report.pdf
 ```
 
 Inspect or change the stored configuration without exposing the key:
 
 ```console
-mistral config show
-mistral config path
-mistral config unset api-key
+moxtral config show
+moxtral config path
+moxtral config unset api-key
 ```
 
 ### Config file
 
-The default path is `~/.mistral/config.toml`. On POSIX systems the CLI creates
+The default path is `~/.moxtral/config.toml`. On POSIX systems the CLI creates
 its config directory with mode `0700` and the file with mode `0600`, and writes
 updates atomically. The key is stored as **plaintext**, so protect the account
 and any backups that contain this file.
@@ -340,7 +339,7 @@ and any backups that contain this file.
 Select a different file with the root `--config` option:
 
 ```console
-mistral --config ./private-config.toml config set api-key
+moxtral --config ./private-config.toml config set api-key
 ```
 
 ### Shell completion
@@ -349,9 +348,9 @@ Click provides tab completion for commands and options. Add the line for
 your shell to its startup file:
 
 ```console
-eval "$(_MISTRAL_COMPLETE=zsh_source mistral)"     # ~/.zshrc
-eval "$(_MISTRAL_COMPLETE=bash_source mistral)"    # ~/.bashrc
-_MISTRAL_COMPLETE=fish_source mistral | source     # ~/.config/fish/config.fish
+eval "$(_MOXTRAL_COMPLETE=zsh_source moxtral)"     # ~/.zshrc
+eval "$(_MOXTRAL_COMPLETE=bash_source moxtral)"    # ~/.bashrc
+_MOXTRAL_COMPLETE=fish_source moxtral | source     # ~/.config/fish/config.fish
 ```
 
 ---
@@ -363,7 +362,7 @@ reported concisely, without a traceback. Put the root `--debug` flag **before**
 the command to include diagnostic tracebacks:
 
 ```console
-mistral --debug transcribe interview.mp3
+moxtral --debug transcribe interview.mp3
 ```
 
 Transient failures that fail fast — HTTP 429 rate limits, 5xx server errors,
@@ -383,19 +382,37 @@ Security properties:
 
 ---
 
+## About the name & trademarks
+
+moxtral (**M**istral **O**CR + Vo**xtral**) is an independent, open-source
+project. It is not affiliated with, endorsed by, or sponsored by Mistral AI.
+"Mistral", "Mistral OCR", and "Voxtral" are trademarks of their respective
+owner and are used here only to identify the APIs this tool talks to.
+
+The CLI deliberately does not claim the bare `mistral` command: that name
+belongs to other projects (the OpenStack Mistral client on PyPI installs a
+`mistral` executable) and plausibly to Mistral AI's own tooling in the future
+(their coding agent currently installs `vibe`). `moxtral` installs alongside
+all of them without conflict.
+
+> Historical note: this project was named `mistral-cli` (command `mistral`)
+> up to version 0.3.0.
+
+---
+
 ## Development
 
 Install locked runtime and development dependencies:
 
 ```console
 uv sync
-uv run mistral --help
+uv run moxtral --help
 ```
 
 Run the full quality gates:
 
 ```console
-uv run pytest --cov=mistral_cli --cov-report=term-missing
+uv run pytest --cov=moxtral --cov-report=term-missing
 uv run ruff check .
 uv run ruff format --check .
 uv run pyright
