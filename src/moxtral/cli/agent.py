@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING
 
 import click
 
-from mistral_cli.formatters import serialize_json
-from mistral_cli.schema import record_schema
+from moxtral.formatters import serialize_json
+from moxtral.schema import record_schema
 
 if TYPE_CHECKING:
-    from mistral_cli.cli.main import AppContext
+    from moxtral.cli.main import AppContext
 
 
 @click.command()
@@ -26,7 +26,7 @@ def agent(context: AppContext, show_schema: bool) -> None:
         context.consoles.write_stdout(serialize_json(record_schema()))
         return
     guide = (
-        resources.files("mistral_cli")
+        resources.files("moxtral")
         .joinpath("data/agent_guide.md")
         .read_text(encoding="utf-8")
     )

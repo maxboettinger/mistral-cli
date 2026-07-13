@@ -3,9 +3,9 @@ from unittest.mock import patch
 
 import pytest
 
-from mistral_cli.errors import InputError, MistralCliError
-from mistral_cli.models import OcrSourceKind, Operation, SourceKind
-from mistral_cli.sources import resolve_source
+from moxtral.errors import InputError, MoxtralError
+from moxtral.models import OcrSourceKind, Operation, SourceKind
+from moxtral.sources import resolve_source
 
 
 def test_readable_local_file_is_expanded_and_preserves_path(tmp_path: Path) -> None:
@@ -244,7 +244,7 @@ def test_local_unknown_extension_defaults_to_document(tmp_path: Path) -> None:
 
 
 def test_input_error_is_an_expected_cli_error() -> None:
-    assert issubclass(InputError, MistralCliError)
+    assert issubclass(InputError, MoxtralError)
 
 
 def _file_of_size(tmp_path: Path, name: str, size: int) -> Path:

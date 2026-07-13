@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from io import StringIO
 
-from mistral_cli.console import (
+from moxtral.console import (
     ConsoleBundle,
     create_console_bundle,
     sanitize_terminal_text,

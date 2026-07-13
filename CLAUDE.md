@@ -4,19 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A `mistral` CLI wrapping Mistral OCR (documents/images → Markdown) and audio
+A `moxtral` CLI wrapping Mistral OCR (documents/images → Markdown) and audio
 transcription (audio → text). `src/` layout, packaged with hatchling, managed
-with `uv`. Entry point: `mistral_cli.cli.main:cli`.
+with `uv`. Entry point: `moxtral.cli.main:cli`.
 
 ## Commands
 
 ```console
 uv sync                              # install locked runtime + dev deps
-uv run mistral --help                # run the CLI in-tree
+uv run moxtral --help                # run the CLI in-tree
 
 uv run pytest                        # full test suite
 uv run pytest tests/test_ocr_cli.py::test_name   # a single test
-uv run pytest --cov=mistral_cli --cov-report=term-missing
+uv run pytest --cov=moxtral --cov-report=term-missing
 
 uv run ruff check .                  # lint
 uv run ruff format --check .         # format check (drop --check to apply)
@@ -42,15 +42,15 @@ Strict layering, dependencies point inward. The request flow:
 | `cli/ocr.py`, `cli/transcribe.py`, `cli/config.py`, `cli/agent.py` | Click commands (`agent` prints the packaged guide/schema). |
 | `cli/runner.py` | Shared batch loop: per-source errors, lazy runtime, save, Markdown/NDJSON stdout, `--quiet`/`--no-save`/`--dry-run`, exit codes. |
 | `cli/common.py` | Shared secret handling, error reporting, redaction. |
-| `schema.py` | JSON Schema for the `--json` NDJSON records (`mistral agent --schema`). |
+| `schema.py` | JSON Schema for the `--json` NDJSON records (`moxtral agent --schema`). |
 | `models.py` | SDK-independent request/result types + `build_*_request` validation. |
 | `services/` | `OcrService` / `TranscriptionService` behind `*Gateway` protocols. |
 | `mistral_client.py` | `MistralGateway`: the only place that touches `mistralai`. |
 | `config.py` | `ConfigStore`: typed TOML, atomic writes, POSIX 0700/0600 perms. |
 | `sources.py` | Resolves a source string to a local-file or URL `InputSource`. |
 | `formatters.py` | Result → Markdown. |
-| `storage.py` | `ResultStore`: collision-safe atomic saves to `~/.mistral/{ocr,transcriptions}/`. |
-| `dedupe.py` | `DedupeIndex`: content-addressed duplicate detection; NDJSON index under `~/.mistral`. |
+| `storage.py` | `ResultStore`: collision-safe atomic saves to `~/.moxtral/{ocr,transcriptions}/`. |
+| `dedupe.py` | `DedupeIndex`: content-addressed duplicate detection; NDJSON index under `~/.moxtral`. |
 | `errors.py`, `console.py` | Translate, redact, and safely present failures. |
 
 Services take a gateway `Protocol`, not the concrete SDK client — tests inject
@@ -69,7 +69,7 @@ progressively — `candidate_secrets()` (env + stored key) before setup,
 then `extend_secrets()` once the real key is resolved in the runner — so
 error output is always redacted even on early failures. The CLI **never** accepts
 an API key as an argument (prompt, `--stdin`, or `MISTRAL_API_KEY` only).
-`translate_exception()` maps external/SDK errors to safe `MistralCliError`
+`translate_exception()` maps external/SDK errors to safe `MoxtralError`
 messages so untrusted exception text never leaks; raw detail appears only under
 `--debug`, still redacted.
 
@@ -84,8 +84,8 @@ sanitization is a no-op on it and control-character injection is impossible.
 **Stable machine contract.** The NDJSON record shapes (record builders in
 `formatters.py` + `schema.py`), the error codes (`errors.error_code`), and the
 exit codes (`errors.EXIT_FAILURE`/`EXIT_USAGE`/`EXIT_SETUP` = 1/2/3, 0 =
-success) are a public contract documented by `mistral agent`; breaking changes
-require bumping the record `schema_version`. Keep `src/mistral_cli/data/agent_guide.md`
+success) are a public contract documented by `moxtral agent`; breaking changes
+require bumping the record `schema_version`. Keep `src/moxtral/data/agent_guide.md`
 in sync when the CLI surface changes.
 
 ## Command conventions

@@ -8,15 +8,15 @@ from typing import Protocol, cast
 
 import click
 
-from mistral_cli.config import ConfigStore
-from mistral_cli.console import sanitize_terminal_text
-from mistral_cli.errors import (
+from moxtral.config import ConfigStore
+from moxtral.console import sanitize_terminal_text
+from moxtral.errors import (
     ConfigError,
     format_debug_exception,
     redact,
     translate_exception,
 )
-from mistral_cli.models import ApiResult, InputSource, JSONMapping, JSONValue
+from moxtral.models import ApiResult, InputSource, JSONMapping, JSONValue
 
 
 def positive_days(

@@ -5,8 +5,8 @@ from typing import cast
 
 import pytest
 
-from mistral_cli.errors import InputError
-from mistral_cli.models import (
+from moxtral.errors import InputError
+from moxtral.models import (
     ApiResult,
     Confidence,
     InputSource,

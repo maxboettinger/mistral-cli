@@ -7,10 +7,10 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mistral_cli import __version__
-from mistral_cli.errors import PersistenceError
-from mistral_cli.formatters import build_envelope, serialize_json
-from mistral_cli.models import ApiResult, Operation, OutputFormat, SavedResult
+from moxtral import __version__
+from moxtral.errors import PersistenceError
+from moxtral.formatters import build_envelope, serialize_json
+from moxtral.models import ApiResult, Operation, OutputFormat, SavedResult
 
 _FALLBACK_NAME_MAX = 255
 _MAX_PRESERVED_EXTENSION_BYTES = 16
@@ -37,7 +37,7 @@ def _set_private_mode(fd: int, path: Path) -> None:
 def _write_temp_file(content: bytes, directory: Path) -> Path:
     """Write content to a private, fully synced temp file inside directory."""
     fd, temp_name = tempfile.mkstemp(
-        prefix=".mistral-cli-",
+        prefix=".moxtral-",
         suffix=".tmp",
         dir=directory,
     )
@@ -152,7 +152,7 @@ class ResultStore:
         version: Callable[[], str] = get_cli_version,
     ) -> None:
         self._base_dir = (
-            Path("~/.mistral").expanduser() if base_dir is None else base_dir
+            Path("~/.moxtral").expanduser() if base_dir is None else base_dir
         )
         self._clock = clock
         self._version = version

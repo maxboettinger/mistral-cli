@@ -3,10 +3,10 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-import mistral_cli.cli.config as config_cli
-from mistral_cli.cli.main import cli
-from mistral_cli.config import ConfigStore
-from mistral_cli.errors import ConfigError
+import moxtral.cli.config as config_cli
+from moxtral.cli.main import cli
+from moxtral.config import ConfigStore
+from moxtral.errors import ConfigError
 
 
 def test_config_set_prompts_for_hidden_confirmed_api_key(tmp_path: Path) -> None:
@@ -227,7 +227,7 @@ def test_config_show_malformed_file_has_redacted_debug_traceback_only_in_debug(
     assert debug.exit_code != 0
     assert "Traceback" not in normal.output
     assert "Traceback (most recent call last)" in debug.output
-    assert "mistral_cli.errors.ConfigError" in debug.output
+    assert "moxtral.errors.ConfigError" in debug.output
     assert "Context: showing configuration" in debug.output
     assert secret not in normal.output + debug.output
 
@@ -264,7 +264,7 @@ def test_config_set_write_failure_debug_redacts_entered_key(
 
     assert result.exit_code != 0
     assert "Traceback (most recent call last)" in result.output
-    assert "mistral_cli.errors.ConfigError" in result.output
+    assert "moxtral.errors.ConfigError" in result.output
     assert "Context: setting configuration api-key" in result.output
     assert secret not in result.output
     assert "[REDACTED]" in result.output

@@ -8,22 +8,22 @@ from typing import TYPE_CHECKING, Generic, Protocol, TypeVar
 
 import click
 
-from mistral_cli.cli.common import (
+from moxtral.cli.common import (
     candidate_secrets,
     extend_secrets,
     redact_result,
     report_error,
     safe_terminal_text,
 )
-from mistral_cli.config import ConfigStore
-from mistral_cli.dedupe import (
+from moxtral.config import ConfigStore
+from moxtral.dedupe import (
     DEDUPE_INDEX_FILENAME,
     DedupeIndex,
     DedupeMatch,
     content_key,
     request_fingerprint,
 )
-from mistral_cli.errors import (
+from moxtral.errors import (
     EXIT_FAILURE,
     EXIT_SETUP,
     ApiError,
@@ -32,7 +32,7 @@ from mistral_cli.errors import (
     redact,
     translate_exception,
 )
-from mistral_cli.formatters import (
+from moxtral.formatters import (
     build_dry_run_record,
     build_envelope,
     build_error_record,
@@ -42,7 +42,7 @@ from mistral_cli.formatters import (
     build_summary_record,
     serialize_ndjson,
 )
-from mistral_cli.models import (
+from moxtral.models import (
     ApiResult,
     InputSource,
     JSONValue,
@@ -50,10 +50,10 @@ from mistral_cli.models import (
     OutputFormat,
     SavedResult,
 )
-from mistral_cli.storage import ResultStore, get_cli_version
+from moxtral.storage import ResultStore, get_cli_version
 
 if TYPE_CHECKING:
-    from mistral_cli.cli.main import AppContext
+    from moxtral.cli.main import AppContext
 
 _STDOUT_SEPARATOR = "\n\n---\n\n"
 

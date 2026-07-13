@@ -4,12 +4,12 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
 
-from mistral_cli.models import (
+from moxtral.models import (
     ApiResult,
     JSONMapping,
-    OcrRequest,
     Operation,
-    ocr_request_metadata,
+    TranscriptionRequest,
+    transcription_request_metadata,
 )
 
 
@@ -17,25 +17,25 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-class OcrGateway(Protocol):
-    def ocr(self, request: OcrRequest) -> JSONMapping: ...
+class TranscriptionGateway(Protocol):
+    def transcribe(self, request: TranscriptionRequest) -> JSONMapping: ...
 
 
-class OcrService:
+class TranscriptionService:
     def __init__(
         self,
-        gateway: OcrGateway,
+        gateway: TranscriptionGateway,
         clock: Callable[[], datetime] = _utc_now,
     ) -> None:
         self._gateway = gateway
         self._clock = clock
 
-    def run(self, request: OcrRequest) -> ApiResult:
-        response = self._gateway.ocr(request)
+    def run(self, request: TranscriptionRequest) -> ApiResult:
+        response = self._gateway.transcribe(request)
         return ApiResult(
-            operation=Operation.OCR,
+            operation=Operation.TRANSCRIPTION,
             source=request.source,
-            request_metadata=ocr_request_metadata(request),
+            request_metadata=transcription_request_metadata(request),
             response=response,
             created_at=self._clock(),
         )

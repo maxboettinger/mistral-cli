@@ -10,7 +10,7 @@ from typing import Final
 
 import tomli_w
 
-from mistral_cli.errors import ConfigError
+from moxtral.errors import ConfigError
 
 _CONFIG_NAMES: Final = {"api-key": "api_key"}
 _SUPPORTED_KEYS: Final = {"config_version", *_CONFIG_NAMES.values()}
@@ -102,7 +102,7 @@ class ConfigStore:
 
         raise ConfigError(
             "No API key configured. Set MISTRAL_API_KEY or run "
-            "`mistral config set api-key`."
+            "`moxtral config set api-key`."
         )
 
     def set(self, name: str, value: str) -> None:

@@ -5,12 +5,12 @@ import importlib.metadata
 
 import pytest
 
-import mistral_cli
+import moxtral
 
 
 def test_version_is_a_nonempty_version_string() -> None:
-    assert mistral_cli.__version__
-    assert mistral_cli.__version__[0].isdigit()
+    assert moxtral.__version__
+    assert moxtral.__version__[0].isdigit()
 
 
 def test_version_falls_back_when_distribution_is_missing(
@@ -21,8 +21,8 @@ def test_version_falls_back_when_distribution_is_missing(
 
     monkeypatch.setattr(importlib.metadata, "version", missing)
     try:
-        module = importlib.reload(mistral_cli)
+        module = importlib.reload(moxtral)
         assert module.__version__ == "0.0.0+unknown"
     finally:
         monkeypatch.undo()
-        importlib.reload(mistral_cli)
+        importlib.reload(moxtral)

@@ -1,7 +1,7 @@
 from click.testing import CliRunner
 
-from mistral_cli import __version__
-from mistral_cli.cli.main import cli
+from moxtral import __version__
+from moxtral.cli.main import cli
 
 
 def test_root_help_lists_available_commands() -> None:

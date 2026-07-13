@@ -1,15 +1,15 @@
-# Noridoc: mistral_cli
+# Noridoc: moxtral
 
-Path: @/src/mistral_cli
+Path: @/src/moxtral
 
 ### Overview
 
-The complete implementation of `mistral-cli`, a Python 3.11+ command-line tool
+The complete implementation of `moxtral`, a Python 3.11+ command-line tool
 that wraps the Mistral API for two use cases — OCR (document/image text
-extraction) and audio transcription. It is distributed as the `mistral` console
-command whose entry point is `mistral_cli.cli.main:cli` (see
+extraction) and audio transcription. It is distributed as the `moxtral` console
+command whose entry point is `moxtral.cli.main:cli` (see
 [`pyproject.toml`](../../pyproject.toml)). `__main__.py` provides the same entry
-via `python -m mistral_cli`, and `__init__.py` exposes `__version__` resolved
+via `python -m moxtral`, and `__init__.py` exposes `__version__` resolved
 from installed package metadata.
 
 ### How it fits into the larger codebase
@@ -25,21 +25,21 @@ and only one module touches the vendor SDK:
    services/ (OcrService / TranscriptionService)
           │  call a narrow gateway Protocol
           ▼
- mistral_client.py  ── the ONLY importer of `mistralai`
+ moxtralent.py  ── the ONLY importer of `mistralai`
           │  returns plain-JSON mappings
           ▼
      ApiResult ──▶ formatters.py ──▶ storage.py (durable .md/.json)
                                           │
                                           ▼
                                     dedupe.py (records the save in
-                                    ~/.mistral/index.ndjson)
+                                    ~/.moxtral/index.ndjson)
 
  supporting: models.py (types + validation), sources.py (input resolution),
              config.py (TOML + key resolution), errors.py + console.py (safe I/O)
 ```
 
 Command modules in [`cli/`](cli/docs.md) orchestrate the flow; [`services/`](services/docs.md)
-sit behind gateway protocols; `mistral_client.py` is the adapter. This isolation
+sit behind gateway protocols; `moxtralent.py` is the adapter. This isolation
 is what lets the entire test suite run without live API calls by substituting
 fake gateways.
 
@@ -62,7 +62,7 @@ files); `http`/`https` values become URLs; other schemes are rejected. It also
 sanitizes the derived filename and decides the OCR variant (`image_url` vs
 `document_url`) from MIME type or URL suffix.
 
-`mistral_client.MistralGateway` maps a request to SDK kwargs, opens the client
+`moxtralent.MistralGateway` maps a request to SDK kwargs, opens the client
 per call, and — critically — converts the SDK response into a strict plain-JSON
 mapping via `model_dump(mode="json", exclude_unset=True)` plus recursive
 validation, so no SDK object ever escapes this module. Local OCR files are
@@ -89,7 +89,7 @@ literal value, and `request_fingerprint()` hashes the same
 `retries`, with `timestamps` order-normalized so flag order never defeats a
 match) — retry count is an execution detail, not part of a request's identity.
 `DedupeIndex.lookup()` / `.record()` read and append the append-only
-`~/.mistral/index.ndjson` that the batch runner in [`cli/`](cli/docs.md) uses
+`~/.moxtral/index.ndjson` that the batch runner in [`cli/`](cli/docs.md) uses
 to skip duplicates and then record new results.
 
 ### Things to Know
@@ -119,7 +119,7 @@ Several invariants are enforced structurally across this package:
   two guarantees as before with less machinery: a file is never overwritten
   (enforced by `os.link`'s atomicity), and a visible file is always complete
   (enforced by writing + fsyncing before it's ever linked into a visible name).
-- **Best-effort duplicate index**: `dedupe.py`'s `~/.mistral/index.ndjson` is
+- **Best-effort duplicate index**: `dedupe.py`'s `~/.moxtral/index.ndjson` is
   append-only (`O_APPEND` + `fsync`, mode `0600`); a missing file means no
   duplicates, corrupt or unrecognized lines are ignored on read, and any
   `OSError` on lookup or record degrades to a stderr warning instead of
@@ -127,9 +127,9 @@ Several invariants are enforced structurally across this package:
 - **Error translation** in `errors.py` maps SDK/network/HTTP failures to concise
   domain messages (`ApiError`, `ConfigError`, `InputError`, `PersistenceError`)
   without leaking untrusted exception text, unless `--debug` is set.
-- **SDK types stay confined to `mistral_client.py`**: the `retries` field is a
+- **SDK types stay confined to `moxtralent.py`**: the `retries` field is a
   plain `int` everywhere else in the codebase (models, services, CLI); only
-  `mistral_client.py` translates it into the SDK's `RetryConfig`/
+  `moxtralent.py` translates it into the SDK's `RetryConfig`/
   `BackoffStrategy`, matching the rule that `mistralai` is imported nowhere else.
 
 Created and maintained by Nori.

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mistral_cli.models import (
+from moxtral.models import (
     InputSource,
     JSONMapping,
     OcrRequest,
@@ -13,8 +13,8 @@ from mistral_cli.models import (
     SourceKind,
     TranscriptionRequest,
 )
-from mistral_cli.services.ocr import OcrService
-from mistral_cli.services.transcription import TranscriptionService
+from moxtral.services.ocr import OcrService
+from moxtral.services.transcription import TranscriptionService
 
 
 class FakeOcrGateway:

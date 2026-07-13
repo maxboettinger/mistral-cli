@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from mistral_cli.config import AppConfig, ConfigStore
-from mistral_cli.errors import ConfigError
+from moxtral.config import AppConfig, ConfigStore
+from moxtral.errors import ConfigError
 
 
 def test_app_config_is_immutable_and_uses_defaults() -> None:
@@ -63,7 +63,7 @@ def test_missing_credentials_error_explains_both_configuration_options(
 
     message = str(error.value)
     assert "MISTRAL_API_KEY" in message
-    assert "mistral config set api-key" in message
+    assert "moxtral config set api-key" in message
 
 
 def test_set_creates_private_nested_configuration(tmp_path: Path) -> None:

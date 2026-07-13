@@ -9,8 +9,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
-from mistral_cli.errors import InputError
-from mistral_cli.models import (
+from moxtral.errors import InputError
+from moxtral.models import (
     InputSource,
     JSONMapping,
     JSONValue,
@@ -18,7 +18,7 @@ from mistral_cli.models import (
     SavedResult,
     SourceKind,
 )
-from mistral_cli.storage import utc_now
+from moxtral.storage import utc_now
 
 DEDUPE_INDEX_FILENAME = "index.ndjson"
 

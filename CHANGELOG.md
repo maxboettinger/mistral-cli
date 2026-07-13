@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-13
+
+### Changed (breaking)
+
+- **Renamed the project `mistral-cli` → `moxtral`** (Mistral OCR + Voxtral).
+  The distribution (`mistral-cli` → `moxtral`), console script
+  (`mistral` → `moxtral`), import package (`mistral_cli` → `moxtral`),
+  default data directory (`~/.mistral` → `~/.moxtral`, including
+  `config.toml` and the dedupe index), and shell-completion variable
+  (`_MISTRAL_COMPLETE` → `_MOXTRAL_COMPLETE`) all change. The rename avoids
+  colliding with the `mistral` executable installed by OpenStack's
+  `python-mistralclient` and makes clear this is an independent project,
+  not an official Mistral AI tool. Migrate existing data with
+  `mv ~/.mistral ~/.moxtral`. The NDJSON record shapes, error codes, and
+  exit codes are unchanged (`schema_version` stays `1`; only the schema
+  `title` string changed).
+
 ## [0.3.0] - 2026-07-12
 
 ### Added

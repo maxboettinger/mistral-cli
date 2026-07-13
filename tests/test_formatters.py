@@ -5,8 +5,8 @@ from typing import cast
 
 import pytest
 
-from mistral_cli.console import sanitize_terminal_text
-from mistral_cli.formatters import (
+from moxtral.console import sanitize_terminal_text
+from moxtral.formatters import (
     RECORD_SCHEMA_VERSION,
     build_dry_run_record,
     build_envelope,
@@ -21,7 +21,7 @@ from mistral_cli.formatters import (
     serialize_json,
     serialize_ndjson,
 )
-from mistral_cli.models import (
+from moxtral.models import (
     ApiResult,
     InputSource,
     JSONMapping,

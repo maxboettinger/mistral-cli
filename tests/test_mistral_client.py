@@ -11,11 +11,11 @@ from typing import cast
 import pytest
 from mistralai.client.utils.retries import RetryConfig
 
-from mistral_cli.mistral_client import (
+from moxtral.mistral_client import (
     MistralGateway,
     _retry_config,  # pyright: ignore[reportPrivateUsage]
 )
-from mistral_cli.models import (
+from moxtral.models import (
     InputSource,
     OcrRequest,
     OcrSourceKind,

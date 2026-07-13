@@ -9,14 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from mistral_cli.dedupe import (
+from moxtral.dedupe import (
     DedupeIndex,
     DedupeMatch,
     content_key,
     request_fingerprint,
 )
-from mistral_cli.errors import InputError
-from mistral_cli.models import (
+from moxtral.errors import InputError
+from moxtral.models import (
     InputSource,
     JSONValue,
     Operation,
