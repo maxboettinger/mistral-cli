@@ -36,4 +36,4 @@ def test_root_help_mentions_agent_docs() -> None:
     result = CliRunner().invoke(cli, ["--help"])
 
     assert result.exit_code == 0
-    assert "mistral agent" in result.stdout
+    assert "moxtral agent" in result.stdout

@@ -63,7 +63,7 @@ def test_missing_credentials_error_explains_both_configuration_options(
 
     message = str(error.value)
     assert "MISTRAL_API_KEY" in message
-    assert "mistral config set api-key" in message
+    assert "moxtral config set api-key" in message
 
 
 def test_set_creates_private_nested_configuration(tmp_path: Path) -> None:

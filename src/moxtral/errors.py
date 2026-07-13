@@ -8,11 +8,11 @@ EXIT_USAGE = 2
 EXIT_SETUP = 3
 
 
-class MistralCliError(Exception):
-    """Base exception for expected mistral-cli failures."""
+class MoxtralError(Exception):
+    """Base exception for expected moxtral failures."""
 
 
-class ApiError(MistralCliError):
+class ApiError(MoxtralError):
     """Raised when a Mistral API request fails."""
 
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
@@ -20,15 +20,15 @@ class ApiError(MistralCliError):
         self.status_code = status_code
 
 
-class ConfigError(MistralCliError):
+class ConfigError(MoxtralError):
     """Raised when configuration cannot be read, validated, or updated."""
 
 
-class InputError(MistralCliError):
+class InputError(MoxtralError):
     """Raised when command input cannot be resolved or validated."""
 
 
-class PersistenceError(MistralCliError):
+class PersistenceError(MoxtralError):
     """Raised when a result cannot be serialized or saved safely."""
 
 
@@ -102,9 +102,9 @@ def _api_error(status_code: int) -> ApiError:
     return ApiError(message, status_code=status_code)
 
 
-def translate_exception(error: Exception) -> MistralCliError:
+def translate_exception(error: Exception) -> MoxtralError:
     """Translate external failures without exposing untrusted exception details."""
-    if isinstance(error, MistralCliError):
+    if isinstance(error, MoxtralError):
         return error
     if _is_timeout(error):
         return ApiError("The Mistral request timed out. Try again.")
@@ -116,10 +116,10 @@ def translate_exception(error: Exception) -> MistralCliError:
     status_code = _status_code(error)
     if status_code is not None:
         return _api_error(status_code)
-    return MistralCliError("Unexpected failure. Run again with --debug for details.")
+    return MoxtralError("Unexpected failure. Run again with --debug for details.")
 
 
-def error_code(error: MistralCliError) -> str:
+def error_code(error: MoxtralError) -> str:
     """Return the stable machine-readable code for a translated error."""
     if isinstance(error, InputError):
         return "input_error"

@@ -9,7 +9,7 @@ from moxtral import errors as errors_module
 from moxtral.errors import (
     ApiError,
     ConfigError,
-    MistralCliError,
+    MoxtralError,
     format_debug_exception,
     redact,
     translate_exception,
@@ -116,7 +116,7 @@ def test_translate_exception_preserves_domain_error_identity() -> None:
 def test_translate_exception_hides_unknown_exception_details() -> None:
     translated = translate_exception(RuntimeError("response body with credentials"))
 
-    assert type(translated) is MistralCliError
+    assert type(translated) is MoxtralError
     assert str(translated) == "Unexpected failure. Run again with --debug for details."
     assert "credentials" not in str(translated)
 
@@ -133,7 +133,7 @@ def test_translate_exception_tolerates_hostile_public_attributes() -> None:
 
     translated = translate_exception(HostileError("private response body"))
 
-    assert type(translated) is MistralCliError
+    assert type(translated) is MoxtralError
     assert "private response body" not in str(translated)
 
 
@@ -202,8 +202,8 @@ def test_exit_code_constants_are_stable() -> None:
         (ConfigError("x"), "config_error"),
         (ApiError("x", status_code=429), "api_error"),
         (errors_module.PersistenceError("x"), "persistence_error"),
-        (MistralCliError("x"), "unexpected_error"),
+        (MoxtralError("x"), "unexpected_error"),
     ],
 )
-def test_error_code_maps_taxonomy(error: MistralCliError, expected: str) -> None:
+def test_error_code_maps_taxonomy(error: MoxtralError, expected: str) -> None:
     assert errors_module.error_code(error) == expected

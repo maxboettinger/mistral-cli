@@ -1,1 +1,1 @@
-"""Command-line interface for mistral-cli."""
+"""Command-line interface for moxtral."""

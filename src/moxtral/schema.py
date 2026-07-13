@@ -121,7 +121,7 @@ def record_schema() -> dict[str, JSONValue]:
     }
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "mistral-cli --json output record",
+        "title": "moxtral --json output record",
         "description": (
             "One NDJSON record per line on stdout: one record per source, "
             "plus a final summary record."

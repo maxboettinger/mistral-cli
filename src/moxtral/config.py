@@ -102,7 +102,7 @@ class ConfigStore:
 
         raise ConfigError(
             "No API key configured. Set MISTRAL_API_KEY or run "
-            "`mistral config set api-key`."
+            "`moxtral config set api-key`."
         )
 
     def set(self, name: str, value: str) -> None:
