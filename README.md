@@ -1,7 +1,9 @@
 # moxtral
 
 [![CI](https://github.com/maxboettinger/moxtral/actions/workflows/ci.yml/badge.svg)](https://github.com/maxboettinger/moxtral/actions/workflows/ci.yml)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
+[![Release](https://github.com/maxboettinger/moxtral/actions/workflows/release.yml/badge.svg)](https://github.com/maxboettinger/moxtral/actions/workflows/release.yml)
+[![PyPI](https://img.shields.io/pypi/v/moxtral)](https://pypi.org/project/moxtral/)
+[![Python versions](https://img.shields.io/pypi/pyversions/moxtral)](https://pypi.org/project/moxtral/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **A modern command-line interface for [Mistral OCR](https://docs.mistral.ai/studio-api/document-processing/basic_ocr) and [Voxtral audio transcription](https://docs.mistral.ai/studio-api/audio/speech_to_text/offline_transcription).**
@@ -55,32 +57,31 @@ moxtral transcribe interview.mp3
 
 ## Quickstart
 
-**1. Install** as an isolated command with [uv](https://docs.astral.sh/uv/)
-(or [pipx](https://pipx.pypa.io/)), always from a checkout of this
-repository — this tool is not published on PyPI:
+**1. Install** from [PyPI](https://pypi.org/project/moxtral/) as an isolated
+command with [uv](https://docs.astral.sh/uv/) (or
+[pipx](https://pipx.pypa.io/)):
+
+```console
+uv tool install moxtral          # or: pipx install moxtral
+```
+
+Update later with `uv tool upgrade moxtral` (or `pipx upgrade moxtral`).
+
+To install from source instead (e.g. to try unreleased changes):
 
 ```console
 git clone https://github.com/maxboettinger/moxtral.git
-uv tool install ./moxtral
+uv tool install --reinstall --force ./moxtral
 ```
 
-**Updating** after pulling or editing code: force a rebuild. A plain
-`uv tool install .` may silently reuse a previously built wheel when the
-version number hasn't changed, leaving the installed command stale:
-
-```console
-uv tool install --reinstall --force .
-```
-
-Then verify you are running this tool and that it picked up the new code:
+Then verify the installation:
 
 ```console
 uv tool list          # the `moxtral` executable must be listed under `moxtral`
 moxtral --help        # must show: agent, config, ocr, transcribe
 ```
 
-> **Note:** this tool is not published on PyPI — the only install source is
-> this repository. Don't confuse it with the PyPI package named `mistral`
+> **Note:** don't confuse this tool with the PyPI package named `mistral`
 > (OpenStack Mistral, a workflow service unrelated to Mistral AI) or with
 > Mistral AI's own coding-agent CLI (`vibe`).
 
@@ -419,6 +420,25 @@ uv run pyright
 uv lock --check
 uv build
 ```
+
+### Releasing
+
+Releases are published to PyPI automatically via
+[Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (OIDC — no
+API tokens). Pushing a version tag runs the full CI matrix, verifies the tag
+matches `pyproject.toml`, uploads to PyPI, and creates a GitHub release with
+the built artifacts:
+
+```console
+uv version --bump minor          # or: patch / major — updates pyproject.toml + uv.lock
+# update CHANGELOG.md, then:
+git commit -am "release: v$(uv version --short)"
+git tag "v$(uv version --short)"
+git push && git push --tags
+```
+
+The tag must be `v<version>` and match `pyproject.toml` exactly, or the
+release job fails before anything is published.
 
 ### Architecture
 

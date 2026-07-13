@@ -6,6 +6,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.4.0] - 2026-07-13
 
+### Added
+
+- PyPI publication as [`moxtral`](https://pypi.org/project/moxtral/), with an
+  automated release workflow: pushing a `v*` tag runs the full CI matrix,
+  verifies the tag against `pyproject.toml`, publishes to PyPI via Trusted
+  Publishing (OIDC), and creates a GitHub release with the built artifacts.
+
 ### Changed (breaking)
 
 - **Renamed the project `mistral-cli` → `moxtral`** (Mistral OCR + Voxtral).
