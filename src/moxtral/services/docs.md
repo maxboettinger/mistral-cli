@@ -12,10 +12,10 @@ flows onward to formatting and storage.
 ### How it fits into the larger codebase
 
 Services sit between the Click command layer ([`cli/`](../cli/docs.md)) and the
-SDK adapter ([`moxtralent.py`](../moxtralent.py)). They depend only on a
+SDK adapter ([`mistral_client.py`](../mistral_client.py)). They depend only on a
 narrow *gateway protocol* (`OcrGateway.ocr` / `TranscriptionGateway.transcribe`),
 never on `mistralai` directly, so the command layer can inject the real
-[`MistralGateway`](../moxtralent.py) in production or a fake gateway in tests.
+[`MistralGateway`](../mistral_client.py) in production or a fake gateway in tests.
 This is the boundary that keeps the dependency direction pointing inward: commands
 depend on services, services depend on a protocol, and only the adapter imports
 the SDK. The CLI constructs a service by calling `OcrService(create_gateway(...))`

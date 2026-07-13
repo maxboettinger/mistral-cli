@@ -25,7 +25,7 @@ and only one module touches the vendor SDK:
    services/ (OcrService / TranscriptionService)
           │  call a narrow gateway Protocol
           ▼
- moxtralent.py  ── the ONLY importer of `mistralai`
+ mistral_client.py  ── the ONLY importer of `mistralai`
           │  returns plain-JSON mappings
           ▼
      ApiResult ──▶ formatters.py ──▶ storage.py (durable .md/.json)
@@ -39,7 +39,7 @@ and only one module touches the vendor SDK:
 ```
 
 Command modules in [`cli/`](cli/docs.md) orchestrate the flow; [`services/`](services/docs.md)
-sit behind gateway protocols; `moxtralent.py` is the adapter. This isolation
+sit behind gateway protocols; `mistral_client.py` is the adapter. This isolation
 is what lets the entire test suite run without live API calls by substituting
 fake gateways.
 
@@ -62,7 +62,7 @@ files); `http`/`https` values become URLs; other schemes are rejected. It also
 sanitizes the derived filename and decides the OCR variant (`image_url` vs
 `document_url`) from MIME type or URL suffix.
 
-`moxtralent.MistralGateway` maps a request to SDK kwargs, opens the client
+`mistral_client.MistralGateway` maps a request to SDK kwargs, opens the client
 per call, and — critically — converts the SDK response into a strict plain-JSON
 mapping via `model_dump(mode="json", exclude_unset=True)` plus recursive
 validation, so no SDK object ever escapes this module. Local OCR files are
@@ -96,6 +96,14 @@ to skip duplicates and then record new results.
 
 Several invariants are enforced structurally across this package:
 
+- **Package name vs. module names**: the distribution/import package, console
+  script, and data directory are `moxtral` (renamed from `mistral-cli` for
+  0.4.0 — the bare `mistral` script collided with OpenStack's
+  `python-mistralclient`, and the old name implied official affiliation with
+  Mistral AI). Names that refer to the vendor API rather than the tool itself
+  were deliberately left unrenamed: [`mistral_client.py`](mistral_client.py),
+  `MistralGateway`, the `MISTRAL_API_KEY` env var, the `mistralai` SDK
+  dependency, and the `mistral-ocr-latest`/`voxtral-mini-latest` model IDs.
 - **Timezone-aware timestamps**: `ApiResult.__post_init__` rejects naive
   datetimes, and both the service clock and storage clock produce UTC. Filenames
   use `YYYYMMDDTHHMMSS.ffffffZ-<source filename>`.
@@ -127,9 +135,9 @@ Several invariants are enforced structurally across this package:
 - **Error translation** in `errors.py` maps SDK/network/HTTP failures to concise
   domain messages (`ApiError`, `ConfigError`, `InputError`, `PersistenceError`)
   without leaking untrusted exception text, unless `--debug` is set.
-- **SDK types stay confined to `moxtralent.py`**: the `retries` field is a
+- **SDK types stay confined to `mistral_client.py`**: the `retries` field is a
   plain `int` everywhere else in the codebase (models, services, CLI); only
-  `moxtralent.py` translates it into the SDK's `RetryConfig`/
+  `mistral_client.py` translates it into the SDK's `RetryConfig`/
   `BackoffStrategy`, matching the rule that `mistralai` is imported nowhere else.
 
 Created and maintained by Nori.
