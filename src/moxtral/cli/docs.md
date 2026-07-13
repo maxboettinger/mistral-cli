@@ -4,7 +4,7 @@ Path: @/src/moxtral/cli
 
 ### Overview
 
-The Click command layer and the outermost entry point of the `mistral` console
+The Click command layer and the outermost entry point of the `moxtral` console
 script (`moxtral.cli.main:cli`). It defines the root group plus the `ocr`,
 `transcribe`, and `config` commands, wires together sources, services, gateways,
 and storage for each source, and owns all user-facing terminal output and its
@@ -14,7 +14,7 @@ secret-redaction boundary.
 
 This is the top of the dependency graph: command modules import
 [`sources.py`](../sources.py), [`models.py`](../models.py),
-[`services/`](../services/docs.md), [`mistral_client.py`](../mistral_client.py),
+[`services/`](../services/docs.md), [`moxtralent.py`](../moxtralent.py),
 [`formatters.py`](../formatters.py), [`storage.py`](../storage.py),
 [`dedupe.py`](../dedupe.py), and [`config.py`](../config.py). `ocr.py` and
 `transcribe.py` build the request and hand everything else — including the
@@ -42,7 +42,7 @@ factories, markdown formatter), an `OutputOptions`
 declare a `--retries N` option (default 3, validated nonnegative) that flows
 into `build_ocr_request`/`build_transcription_request`; the actual retry
 behavior against the API lives in
-[`mistral_client.py`](../mistral_client.py), not here — this layer only
+[`moxtralent.py`](../moxtralent.py), not here — this layer only
 carries the count through.
 
 `runner.py`'s `_BatchRun` then loops over `SOURCE...` values sequentially:
