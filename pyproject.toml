@@ -1,6 +1,6 @@
 [project]
 name = "moxtral"
-version = "0.4.0"
+version = "0.4.1"
 description = "A modern CLI for Mistral OCR and Voxtral audio transcription (independent project, not affiliated with Mistral AI)"
 readme = "README.md"
 license = "MIT"
