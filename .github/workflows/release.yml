@@ -1,18 +1,51 @@
 name: Release
 
+# Fully automated: any push to main whose pyproject.toml version has no
+# matching v<version> tag yet is released — full CI matrix, PyPI publish via
+# Trusted Publishing, then tag + GitHub release (created only after a
+# successful publish, so failed runs retry automatically).
+
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      unreleased: ${{ steps.check.outputs.unreleased }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - id: check
+        name: Is this version already tagged?
+        run: |
+          version="$(uv version --short)"
+          if [ -z "$(git ls-remote --tags origin "refs/tags/v${version}")" ]; then
+            unreleased=true
+          else
+            unreleased=false
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "unreleased=${unreleased}" >> "$GITHUB_OUTPUT"
+          echo "version ${version} unreleased=${unreleased}"
+
   checks:
+    needs: version
+    if: needs.version.outputs.unreleased == 'true'
     uses: ./.github/workflows/ci.yml
 
   publish:
-    needs: checks
+    needs: [version, checks]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -22,13 +55,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - name: Verify tag matches project version
-        run: |
-          version="$(uv version --short)"
-          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} does not match pyproject.toml version ${version}"
-            exit 1
-          fi
       - run: uv build
       - uses: pypa/gh-action-pypi-publish@release/v1
       - uses: actions/upload-artifact@v4
@@ -36,8 +62,8 @@ jobs:
           name: dist
           path: dist/
 
-  github-release:
-    needs: publish
+  release:
+    needs: [version, publish]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -47,7 +73,10 @@ jobs:
         with:
           name: dist
           path: dist/
-      - name: Create GitHub release with the published artifacts
-        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes
+      - name: Tag and create GitHub release with the published artifacts
+        run: |
+          gh release create "v${VERSION}" dist/* \
+            --target "$GITHUB_SHA" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}

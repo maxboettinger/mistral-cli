@@ -423,22 +423,23 @@ uv build
 
 ### Releasing
 
-Releases are published to PyPI automatically via
+Releases are fully automated via
 [Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (OIDC — no
-API tokens). Pushing a version tag runs the full CI matrix, verifies the tag
-matches `pyproject.toml`, uploads to PyPI, and creates a GitHub release with
-the built artifacts:
+API tokens). Every push to `main` checks whether the `pyproject.toml`
+version already has a `v<version>` tag; if not, it runs the full CI matrix,
+publishes to PyPI, and then tags the commit and creates a GitHub release
+with the built artifacts. So a release is just a version bump:
 
 ```console
 uv version --bump minor          # or: patch / major — updates pyproject.toml + uv.lock
 # update CHANGELOG.md, then:
 git commit -am "release: v$(uv version --short)"
-git tag "v$(uv version --short)"
-git push && git push --tags
+git push
 ```
 
-The tag must be `v<version>` and match `pyproject.toml` exactly, or the
-release job fails before anything is published.
+The tag is created only after a successful PyPI upload, so a failed release
+leaves nothing tagged and simply retries on the next push (or via a manual
+re-run of the workflow).
 
 ### Architecture
 
