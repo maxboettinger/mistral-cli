@@ -1,12 +1,12 @@
-# mistral CLI — agent usage guide
+# moxtral CLI — agent usage guide
 
-`mistral` wraps two Mistral capabilities: `ocr` (documents/images -> Markdown/JSON)
+`moxtral` wraps two Mistral capabilities: `ocr` (documents/images -> Markdown/JSON)
 and `transcribe` (audio -> text). Both commands share one output and error model.
 
 ## Core facts
 
 1. Results are saved to disk by default (`.md` and/or `.json` under
-   `~/.mistral/ocr/` or `~/.mistral/transcriptions/`, or `--output-dir`).
+   `~/.moxtral/ocr/` or `~/.moxtral/transcriptions/`, or `--output-dir`).
    Use `--no-save` (with `--json` or `--stdout`) to skip files entirely.
 2. stdout carries only results: rendered Markdown with `--stdout`, or NDJSON
    records with `--json` (mutually exclusive). Progress, saved paths, errors,
@@ -20,24 +20,24 @@ and `transcribe` (audio -> text). Both commands share one output and error model
 
 ## Setup
 
-API key resolution: `MISTRAL_API_KEY` env var, else `~/.mistral/config.toml`.
+API key resolution: `MISTRAL_API_KEY` env var, else `~/.moxtral/config.toml`.
 
-    printf '%s\n' "$KEY" | mistral config set api-key --stdin
+    printf '%s\n' "$KEY" | moxtral config set api-key --stdin
 
 Never pass the key as a CLI argument; the CLI refuses it. All output, including
 `--debug` tracebacks, is redacted. `--dry-run` needs no API key.
 
 ## Commands
 
-    mistral ocr [OPTIONS] SOURCE...
-    mistral transcribe [OPTIONS] SOURCE...
+    moxtral ocr [OPTIONS] SOURCE...
+    moxtral transcribe [OPTIONS] SOURCE...
 
 `SOURCE...` mixes local paths and http(s) URLs. Failures never stop the batch.
 
 Recommended agent invocation:
 
-    mistral ocr --json --quiet doc.pdf
-    mistral transcribe --json --quiet --diarize call.mp3
+    moxtral ocr --json --quiet doc.pdf
+    moxtral transcribe --json --quiet --diarize call.mp3
 
 Key `ocr` options: `--pages 0,2-4` (0-indexed), `--table-format markdown|html`,
 `--include-images`, `--include-blocks`, `--confidence page|word`,
@@ -54,7 +54,7 @@ Shared options: `--json`, `--stdout`, `--quiet`, `--no-save`, `--dry-run`,
 ## --json NDJSON contract (stable, schema_version 1)
 
 One JSON object per line on stdout, streamed per source, ASCII-encoded.
-Get the full JSON Schema with `mistral agent --schema`.
+Get the full JSON Schema with `moxtral agent --schema`.
 
 Success:
 
@@ -100,8 +100,8 @@ Error codes: `input_error`, `config_error`, `api_error` (with HTTP
 ## jq recipes
 
     # Plain OCR/transcript text from the raw API response
-    mistral transcribe --json --quiet a.mp3 | jq -r 'select(.status=="ok") | .envelope.response.text'
-    mistral ocr --json --quiet doc.pdf | jq -r 'select(.status=="ok") | .envelope.response.pages[].markdown'
+    moxtral transcribe --json --quiet a.mp3 | jq -r 'select(.status=="ok") | .envelope.response.text'
+    moxtral ocr --json --quiet doc.pdf | jq -r 'select(.status=="ok") | .envelope.response.pages[].markdown'
 
     # Collect failures with codes
     ... | jq -c 'select(.status=="error") | {source, code: .error.code}'
